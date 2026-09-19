@@ -12,7 +12,6 @@ _at8236_example/STM32_at8236-master/*/Listings/
 .vscode/
 *.uvguix.*
 *.uvoptx
-*.uvprojx
 *.ioc.bak
 
 # ---- CMake ----
