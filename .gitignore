@@ -1,0 +1,46 @@
+# ---- Build outputs ----
+build/
+cmake-build-*/
+_at8236_example/STM32_at8236-master/OBJ/
+_at8236_example/STM32_at8236-master/*/Listings/
+
+# ---- Temp / scratch ----
+.tmp_sdk/
+
+# ---- IDE / editor ----
+.idea/
+.vscode/
+*.uvguix.*
+*.uvoptx
+*.uvprojx
+*.ioc.bak
+
+# ---- CMake ----
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# ---- Toolchain artifacts ----
+*.o
+*.d
+*.crf
+*.dep
+*.axf
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.sct
+*.scvd
+*.iex
+*.htm
+
+# ---- OS / misc ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.bak
+*.orig
+*.rej

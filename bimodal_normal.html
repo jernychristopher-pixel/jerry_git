@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>双正态分布 (Bimodal Normal Distribution)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 20px;
+  }
+  h1 { font-size: 1.8rem; margin-bottom: 4px; font-weight: 600; letter-spacing: 0.5px; }
+  .subtitle { color: #94a3b8; font-size: 0.9rem; margin-bottom: 16px; }
+  .container { position: relative; }
+  canvas { border-radius: 12px; background: #1e293b; box-shadow: 0 25px 50px rgba(0,0,0,0.4); }
+  .controls {
+    display: flex; gap: 24px; margin-top: 20px; flex-wrap: wrap; justify-content: center;
+  }
+  .control-group {
+    background: #1e293b; border-radius: 10px; padding: 16px 20px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .control-group h3 { font-size: 0.85rem; color: #94a3b8; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
+  .control-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .control-row:last-child { margin-bottom: 0; }
+  label { font-size: 0.82rem; min-width: 50px; }
+  input[type="range"] { width: 120px; accent-color: #818cf8; }
+  .val { font-size: 0.8rem; color: #818cf8; min-width: 36px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; gap: 24px; margin-top: 12px; font-size: 0.82rem; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+  .formula {
+    margin-top: 16px; font-size: 0.82rem; color: #94a3b8; text-align: center;
+    font-style: italic; line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<h1>双正态分布</h1>
+<p class="subtitle">两个正态分布的混合 (Gaussian Mixture Model)</p>
+<div class="container">
+  <canvas id="canvas" width="800" height="480"></canvas>
+</div>
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#f472b6;"></div> 分布 N₁(μ₁,σ₁²)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#60a5fa;"></div> 分布 N₂(μ₂,σ₂²)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#a78bfa; height:3px; width:20px; border-radius:2px;"></div> 混合分布</div>
+</div>
+<div class="controls">
+  <div class="control-group">
+    <h3>🔴 分布 1</h3>
+    <div class="control-row"><label>均值 μ₁</label><input type="range" id="mu1" min="-4" max="4" step="0.1" value="2"><span class="val" id="mu1Val">2.0</span></div>
+    <div class="control-row"><label>标准差 σ₁</label><input type="range" id="s1" min="0.2" max="2" step="0.05" value="0.6"><span class="val" id="s1Val">0.60</span></div>
+    <div class="control-row"><label>权重 w₁</label><input type="range" id="w1" min="0.1" max="0.9" step="0.05" value="0.5"><span class="val" id="w1Val">0.50</span></div>
+  </div>
+  <div class="control-group">
+    <h3>🔵 分布 2</h3>
+    <div class="control-row"><label>均值 μ₂</label><input type="range" id="mu2" min="-4" max="4" step="0.1" value="-2"><span class="val" id="mu2Val">-2.0</span></div>
+    <div class="control-row"><label>标准差 σ₂</label><input type="range" id="s2" min="0.2" max="2" step="0.05" value="0.8"><span class="val" id="s2Val">0.80</span></div>
+    <div class="control-row"><label>权重 w₂</label><input type="range" id="w2" min="0.1" max="0.9" step="0.05" value="0.5"><span class="val" id="w2Val">0.50</span></div>
+  </div>
+</div>
+<p class="formula">f(x) = w₁ · N(x|μ₁,σ₁) &nbsp;+&nbsp; w₂ · N(x|μ₂,σ₂) &nbsp;&nbsp; 其中 &nbsp; w₁ + w₂ = 1</p>
+
+<script>
+function normalPDF(x, mu, sigma) {
+  const a = 1 / (sigma * Math.sqrt(2 * Math.PI));
+  const b = -0.5 * ((x - mu) / sigma) ** 2;
+  return a * Math.exp(b);
+}
+
+function draw() {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const mu1 = +document.getElementById('mu1').value;
+  const s1  = +document.getElementById('s1').value;
+  const w1  = +document.getElementById('w1').value;
+  document.getElementById('mu1Val').textContent = mu1.toFixed(1);
+  document.getElementById('s1Val').textContent  = (s1 < 1 ? s1.toFixed(2) : s1.toFixed(1));
+  document.getElementById('w1Val').textContent  = w1.toFixed(2);
+
+  const mu2 = +document.getElementById('mu2').value;
+  const s2  = +document.getElementById('s2').value;
+  const w2  = +document.getElementById('w2').value;
+  document.getElementById('mu2Val').textContent = mu2.toFixed(1);
+  document.getElementById('s2Val').textContent  = (s2 < 1 ? s2.toFixed(2) : s2.toFixed(1));
+  document.getElementById('w2Val').textContent  = w2.toFixed(2);
+
+  const margin = { top: 40, right: 50, bottom: 50, left: 60 };
+  const pw = W - margin.left - margin.right;
+  const ph = H - margin.top - margin.bottom;
+
+  const xMin = -6, xMax = 6;
+  const yMax = 0.85;
+  const yTickStep = 0.1;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#1e293b';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, W, H, 12);
+  ctx.fill();
+
+  // Grid
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth = 0.5;
+  for (let y = 0; y <= yMax + 1e-9; y += yTickStep) {
+    const py = margin.top + ph - (y / yMax) * ph;
+    ctx.beginPath();
+    ctx.moveTo(margin.left, py);
+    ctx.lineTo(W - margin.right, py);
+    ctx.stroke();
+  }
+  for (let x = xMin; x <= xMax; x += 1) {
+    const px = margin.left + ((x - xMin) / (xMax - xMin)) * pw;
+    ctx.beginPath();
+    ctx.moveTo(px, margin.top);
+    ctx.lineTo(px, H - margin.bottom);
+    ctx.stroke();
+  }
+
+  // Axes
+  ctx.strokeStyle = '#64748b';
+  ctx.lineWidth = 1.5;
+  // X axis at y=0
+  const y0 = margin.top + ph;
+  ctx.beginPath();
+  ctx.moveTo(margin.left, y0);
+  ctx.lineTo(W - margin.right, y0);
+  ctx.stroke();
+  // Y axis at x=0
+  const x0 = margin.left + ((0 - xMin) / (xMax - xMin)) * pw;
+  ctx.beginPath();
+  ctx.moveTo(x0, margin.top);
+  ctx.lineTo(x0, H - margin.bottom);
+  ctx.stroke();
+
+  // Tick labels
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '11px system-ui';
+  ctx.textAlign = 'center';
+  for (let x = xMin; x <= xMax; x += 1) {
+    const px = margin.left + ((x - xMin) / (xMax - xMin)) * pw;
+    ctx.fillText(x, px, y0 + 18);
+  }
+  ctx.textAlign = 'right';
+  for (let y = 0; y <= yMax + 1e-9; y += yTickStep) {
+    const py = margin.top + ph - (y / yMax) * ph;
+    ctx.fillText(y.toFixed(1), margin.left - 8, py + 4);
+  }
+
+  // Axis labels
+  ctx.fillStyle = '#cbd5e1';
+  ctx.font = '12px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('x', W - margin.right + 24, y0 + 4);
+
+  // Draw curves
+  const N = 500;
+  const totalW = w1 + w2;
+
+  function drawCurve(fn, color, width, dash) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dash || []);
+    ctx.beginPath();
+    let first = true;
+    for (let i = 0; i <= N; i++) {
+      const x = xMin + (i / N) * (xMax - xMin);
+      const y = fn(x);
+      const px = margin.left + ((x - xMin) / (xMax - xMin)) * pw;
+      const py = margin.top + ph - (y / yMax) * ph;
+      if (first) { ctx.moveTo(px, py); first = false; }
+      else { ctx.lineTo(px, py); }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Area fills
+  function fillCurve(fn, color) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    let first = true;
+    for (let i = 0; i <= N; i++) {
+      const x = xMin + (i / N) * (xMax - xMin);
+      const y = fn(x);
+      const px = margin.left + ((x - xMin) / (xMax - xMin)) * pw;
+      const py = margin.top + ph - (y / yMax) * ph;
+      if (first) { ctx.moveTo(px, py); first = false; }
+      else { ctx.lineTo(px, py); }
+    }
+    ctx.lineTo(margin.left + pw, y0);
+    ctx.lineTo(margin.left, y0);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Component 1: scaled by w1
+  const f1 = (x) => (w1 / totalW) * normalPDF(x, mu1, s1);
+  // Component 2: scaled by w2
+  const f2 = (x) => (w2 / totalW) * normalPDF(x, mu2, s2);
+  // Mixture
+  const fmix = (x) => f1(x) + f2(x);
+
+  // Fill individual components (semi-transparent)
+  fillCurve(f1, 'rgba(244,114,182,0.15)');
+  fillCurve(f2, 'rgba(96,165,250,0.15)');
+
+  // Draw individual curves
+  drawCurve(f1, '#f472b6', 1.5, [6, 4]);
+  drawCurve(f2, '#60a5fa', 1.5, [6, 4]);
+
+  // Fill mixture
+  fillCurve(fmix, 'rgba(167,139,250,0.12)');
+
+  // Draw mixture curve (thick)
+  drawCurve(fmix, '#a78bfa', 2.8, []);
+
+  // Labels for peaks
+  function labelPeak(mu, sigma, w, totalW, color, offsetY) {
+    const x = mu;
+    const y = (w / totalW) * normalPDF(x, mu, sigma);
+    const px = margin.left + ((x - xMin) / (xMax - xMin)) * pw;
+    const py = margin.top + ph - (y / yMax) * ph;
+
+    // Dot
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(px, py, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = color;
+    ctx.font = 'bold 11px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText(μ=, px, py - offsetY);
+  }
+
+  labelPeak(mu1, s1, w1, totalW, '#f472b6', 14);
+  labelPeak(mu2, s2, w2, totalW, '#60a5fa', 14);
+
+  // Title
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = 'bold 14px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('双正态分布 (混合高斯分布)', W / 2, 24);
+}
+
+// Bind events
+['mu1','s1','w1','mu2','s2','w2'].forEach(id => {
+  document.getElementById(id).addEventListener('input', draw);
+});
+
+// roundRect polyfill
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r) {
+    if (typeof r === 'number') r = {tl:r,tr:r,br:r,bl:r};
+    this.beginPath();
+    this.moveTo(x+r.tl,y);
+    this.lineTo(x+w-r.tr,y);
+    this.quadraticCurveTo(x+w,y,x+w,y+r.tr);
+    this.lineTo(x+w,y+h-r.br);
+    this.quadraticCurveTo(x+w,y+h,x+w-r.br,y+h);
+    this.lineTo(x+r.bl,y+h);
+    this.quadraticCurveTo(x,y+h,x,y+h-r.bl);
+    this.lineTo(x,y+r.tl);
+    this.quadraticCurveTo(x,y,x+r.tl,y);
+    this.closePath();
+  };
+}
+
+draw();
+</script>
+</body>
+</html>
