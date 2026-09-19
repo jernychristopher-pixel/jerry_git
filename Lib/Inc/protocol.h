@@ -63,7 +63,7 @@ void Protocol_Push_Byte(uint8_t ch);
  * 非 0x7B 字节, 所以借用 '#' 不会打乱组帧。 */
 uint8_t Protocol_Rx_Idle(void);
 
-/* 发送33字节反馈帧 */
+/* 发送37字节反馈帧 */
 void Protocol_Send_Feedback(const Protocol_Feedback_t *fb);
 
 #endif

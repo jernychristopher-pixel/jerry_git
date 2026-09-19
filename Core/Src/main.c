@@ -346,7 +346,7 @@ int main(void)
     }
 #endif /* APP_USE_OLED */
 
-    /* USART1: 树莓派 33字节反馈帧 (布局见 Lib/Inc/protocol.h) */
+    /* USART1: 树莓派 37字节反馈帧 (布局见 Lib/Inc/protocol.h) */
     Protocol_Feedback_t fb;
     fb.flag_stop  = 0x00;                        /* 0=电机使能 */
     fb.vx_mm_s    = (int16_t)Chassis_GetVx_MmS();
