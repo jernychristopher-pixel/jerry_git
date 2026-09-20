@@ -13,7 +13,11 @@ __pycache__/
 
 # ---- IDE / editor ----
 .idea/
-.vscode/
+# 只放行 settings.json: 里面记录了本项目实测可用的 cmake/ninja 路径,
+# 是环境可复现性证据(系统 PATH 里的 C:\ST\STM32CubeCLT_1.21.0 是卸载残留死路径)。
+# 其余 .vscode/ 下的文件都是个人偏好, 不跟踪。
+.vscode/*
+!.vscode/settings.json
 *.uvguix.*
 *.uvoptx
 *.ioc.bak
