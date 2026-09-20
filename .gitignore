@@ -7,6 +7,10 @@ _at8236_example/STM32_at8236-master/*/Listings/
 # ---- Temp / scratch ----
 .tmp_sdk/
 
+# ---- Python (tools/*.py 运行后产生的缓存) ----
+__pycache__/
+*.py[cod]
+
 # ---- IDE / editor ----
 .idea/
 .vscode/

@@ -18,7 +18,7 @@
 ## 功能特性
 
 - **双轮差速运动学** —— 由 `V`（线速度）、`W`（角速度）逆解出左右轮目标，轮距 115mm、轮径 65mm。
-- **左右独立速度闭环** —— 编码器实测脉冲经增量式 PID 得出 PWM 占空比，两轮各自闭环。
+- **左右独立速度闭环** —— 编码器实测脉冲经位置式 PID 得出 PWM 占空比，两轮各自闭环。
 - **IMU 航向保持** —— MPU6050 配合 DMP 输出偏航角，直行时自动修正角速度，抑制左右轮速差导致的跑偏。
 - **双控制源互斥** —— 手动（手柄）与自动（上位机）共用 `Chassis_Set_Cmd()` 一个下发入口；
   收到任一合法下行帧即切入 AUTO 模式，按手柄 START 键交还手动控制。
@@ -179,14 +179,15 @@ SlamTest/
 │   └── Src/
 ├── Lib/                   自研业务代码
 │   ├── Inc/
-│   └── Src/               kinematics / pid / motor / imu / yaw_hold /
+│   └── Src/               kinematics / pid / pos_loop / motor / imu / yaw_hold /
 │                          protocol / vofa / ps2 / oled / adc ...
 ├── Drivers/               STM32F1xx HAL 驱动与 CMSIS
 ├── cmake/                 工具链文件 gcc-arm-none-eabi.cmake
 ├── docs/
 │   └── chassis_protocol_spec.md    协议规范（权威来源）
 ├── tools/
-│   └── verify_protocol.py          协议一致性自检
+│   ├── verify_protocol.py          协议一致性自检
+│   └── pid_demo.py                 PID 形式对比 + 位置环闭环仿真
 ├── _at8236_example/       AT8236 电机驱动参考例程
 ├── _sch_png/              C10B 主板原理图
 └── vofa_docs/             VOFA+ 使用说明
