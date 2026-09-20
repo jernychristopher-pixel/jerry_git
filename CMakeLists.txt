@@ -46,7 +46,8 @@ add_executable(${CMAKE_PROJECT_NAME}
         Lib/Src/inv_mpu_dmp_motion_driver.c
         Lib/Src/imu.c
         Lib/Src/yaw_hold.c
-        Lib/Src/adc.c)
+        Lib/Src/adc.c
+        Lib/Src/pos_loop.c)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
