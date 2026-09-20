@@ -5,11 +5,7 @@
 #include "tim.h"
 #include <math.h>
 
-// ===== 核心底盘物理参数宏定义 (已经按实车锁死) =====
-#define WHEEL_TRACK      0.115f   // 轮距 115mm (米)
-#define WHEEL_DIAMETER   0.065f   // 轮径 65mm (米)
-#define WHEEL_PERIMETER  0.2042f  // 轮周长 (pi * D)
-#define ENCODER_CPR      1456.0f  // 减速比28 * 线数13 * 4倍频
+// ===== 物理常量已上移到 kinematics.h, 全工程唯一来源, 这里不再重复定义 =====
 #define CTRL_PERIOD      0.025f   // 25ms 控制周期
 #define EMA_ALPHA        0.4f     // actual-speed EMA coefficient
 
