@@ -21,6 +21,7 @@ static uint8_t text_idx = 0;
 static UART_HandleTypeDef *text_src = NULL;
 static UART_HandleTypeDef *cfg_dump_port = NULL;
 static volatile uint8_t cfg_dump_req = 0;
+static volatile uint8_t csv_mode = 0;
 
 /* 开启两路串口接收中断（必须调用！） */
 void Vofa_Start_Receive_IT(void)
@@ -87,6 +88,24 @@ static void Parse_UART_Frame(char *buf)
             case 'L': YawHold_SetKi(parse_float(buf + 2)); break;
             case 'M': YawHold_SetKd(parse_float(buf + 2)); break;
             case 'N': { long n = parse_int(buf + 2); YawHold_Enable(n != 0); break; }
+            /* M4-3: #S 0/1/2 切 P/PI/PID; #T <rpm> 直接给左右轮同速目标;
+             * #X 退出轮速整定模式, 回到手柄/自动的 V/W 控制。 */
+            case 'S': {
+                long preset = parse_int(buf + 2);
+                if (preset >= 0 && preset <= 2) {
+                    PID_Apply_Preset(&SpeedPID_L, (unsigned)preset);
+                    PID_Apply_Preset(&SpeedPID_R, (unsigned)preset);
+                }
+                break;
+            }
+            case 'T': {
+                float rpm = parse_float(buf + 2);
+                Chassis_Set_Wheel_Rpm(rpm, rpm);
+                break;
+            }
+            case 'X': Chassis_Exit_Wheel_Rpm(); break;
+            /* #V 1 开启 CSV 文本输出(暂停 USART1 二进制帧), #V 0 关闭 */
+            case 'V': { long v = parse_int(buf + 2); csv_mode = (v != 0); break; }
             case 'R': PID_Init(&SpeedPID_L); PID_Init(&SpeedPID_R); break;
             case 'Q': cfg_dump_req = 1; cfg_dump_port = text_src; break;
             default: break;
@@ -297,5 +316,27 @@ void Vofa_Send(float ch0, float ch1, float ch2, float ch3, float ch4, float ch5,
     int n = snprintf(line, sizeof(line), "%s,%s,%s,%s,%s,%s,%s,%s\n", a, b, c, d, e, f, g, h);
     if (n > 0 && n < (int)sizeof(line)) {
         HAL_UART_Transmit(&huart3, (uint8_t*)line, (uint16_t)n, 10);
+    }
+}
+
+uint8_t Vofa_Csv_Enabled(void) {
+    return csv_mode;
+}
+
+/* 原始 CSV: 一行 7 列, 前四列与题目要求的 t,target,actual,pwm 对应(左轮) */
+void Vofa_Send_Csv(float t, float target_l, float actual_l, float pwm_l,
+                   float target_r, float actual_r, float pwm_r) {
+    char a[16], b[16], c[16], d[16], e[16], f[16], g[16];
+    char line[128];
+    Ftoa(a, t, 3);
+    Ftoa(b, target_l, 2);
+    Ftoa(c, actual_l, 2);
+    Ftoa(d, pwm_l, 1);
+    Ftoa(e, target_r, 2);
+    Ftoa(f, actual_r, 2);
+    Ftoa(g, pwm_r, 1);
+    int n = snprintf(line, sizeof(line), "%s,%s,%s,%s,%s,%s,%s\n", a, b, c, d, e, f, g);
+    if (n > 0 && n < (int)sizeof(line)) {
+        HAL_UART_Transmit(&huart1, (uint8_t*)line, (uint16_t)n, 20);
     }
 }

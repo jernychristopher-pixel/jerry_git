@@ -1,9 +1,8 @@
 #include "motor.h"
 #include "tim.h"
 
-// TIM3 PWM满量程 (与CubeMX Period=65535一致)
-#define PWM_FULL  65535
-#define PWM_SCALE (PWM_FULL / 100)
+// TIM3 PWM满量程 (与CubeMX Period=3599一致)
+#define PWM_FULL  3599
 #define DEADBAND    1     // deadband: brake only within +-1, finer low-speed control
 #define MIN_START   0     // 起步偏置已关闭(0): 低速直接用比例驱动, 消除低速顿挫与前后方向不对称
 
@@ -19,7 +18,7 @@ void Set_Motor_PWM(int pwm_left, int pwm_right) {
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWM_FULL);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWM_FULL);
         } else {
-            duty = pwm * PWM_SCALE;
+            duty = pwm * PWM_FULL / 100;
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, duty);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
             dir_L = 1;
@@ -29,7 +28,7 @@ void Set_Motor_PWM(int pwm_left, int pwm_right) {
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWM_FULL);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWM_FULL);
         } else {
-            duty = -pwm * PWM_SCALE;
+            duty = -pwm * PWM_FULL / 100;
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, duty);
             dir_L = -1;
@@ -48,7 +47,7 @@ void Set_Motor_PWM(int pwm_left, int pwm_right) {
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, PWM_FULL);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, PWM_FULL);
         } else {
-            duty = pwm * PWM_SCALE;
+            duty = pwm * PWM_FULL / 100;
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, duty);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 0);
             dir_R = 1;
@@ -58,7 +57,7 @@ void Set_Motor_PWM(int pwm_left, int pwm_right) {
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, PWM_FULL);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, PWM_FULL);
         } else {
-            duty = -pwm * PWM_SCALE;
+            duty = -pwm * PWM_FULL / 100;
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 0);
             __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, duty);
             dir_R = -1;

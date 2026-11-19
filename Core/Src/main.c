@@ -123,10 +123,11 @@ int main(void)
 
   PID_Init(&SpeedPID_L);
   PID_Init(&SpeedPID_R);
-  SpeedPID_L.Kp = 1.5f;  SpeedPID_L.Ki = 0.4f;  SpeedPID_L.Kd = 0.1f;
   SpeedPID_L.OutMax = 100.0f;  SpeedPID_L.OutMin = -100.0f;
-  SpeedPID_R.Kp = 1.5f;  SpeedPID_R.Ki = 0.3f;  SpeedPID_R.Kd = 0.1f;
   SpeedPID_R.OutMax = 100.0f;  SpeedPID_R.OutMin = -100.0f;
+    /* M4-3: 默认 PID 组, 现场用 VOFA #S 0/1/2 切换 P/PI/PID */
+    PID_Apply_Preset(&SpeedPID_L, 2U);
+    PID_Apply_Preset(&SpeedPID_R, 2U);
   Vofa_Start_Receive_IT();
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
@@ -152,13 +153,25 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    /* 固定 20ms 节拍: 先等到本周期起始时刻再干活, 避免"干活+延时"把采样率拖到 40Hz 左右 */
+    {
+      static uint32_t next_tick = 0;
+      uint32_t now_tick = HAL_GetTick();
+      if ((int32_t)(now_tick - next_tick) < 0)
+      {
+        HAL_Delay(1);
+        continue;
+      }
+      next_tick = now_tick + 20;
+    }
+
     PS2_ReadData();
     Vofa_Rx_Reattach();   /* 串口出错后兜底重挂接收, 防止 RX 永久静默 */
     Vofa_Service();       /* #Q 参数回读: 主循环发出, 不挤占串口中断 */
     IMU_Read();   /* 轮询DMP FIFO, 更新偏航角 */
     /* 车轮静止时慢速跟踪陀螺零偏, 抑制温漂引起的残余漂移 */
-    if (robot_state.raw_pulse_L < 2.0f && robot_state.raw_pulse_L > -2.0f &&
-        robot_state.raw_pulse_R < 2.0f && robot_state.raw_pulse_R > -2.0f) {
+    if (robot_state.actual_rpm_L < 4.0f && robot_state.actual_rpm_L > -4.0f &&
+        robot_state.actual_rpm_R < 4.0f && robot_state.actual_rpm_R > -4.0f) {
         IMU_NotifyStill();
     }
 
@@ -294,10 +307,12 @@ int main(void)
     static uint8_t tick = 0;
     if ((tick++ % 3) == 0) {
         char buf[16], buf2[32];
-        Ftoa(buf, robot_state.actual_pulse_L * 0.00561f * CHASSIS_V_SIGN, 2);
+        float vl_mm_s, vr_mm_s;
+        Chassis_GetWheels_MmS(&vl_mm_s, &vr_mm_s);
+        Ftoa(buf, vl_mm_s / 1000.0f, 2);
         snprintf(buf2, sizeof(buf2), "L:%s m/s", buf);
         OLED_PutString(0, 0, buf2, OLED_COLOR_WHITE);
-        Ftoa(buf, robot_state.actual_pulse_R * 0.00561f * CHASSIS_V_SIGN, 2);
+        Ftoa(buf, vr_mm_s / 1000.0f, 2);
         snprintf(buf2, sizeof(buf2), "R:%s m/s", buf);
         OLED_PutString(0, 8, buf2, OLED_COLOR_WHITE);
 
@@ -371,15 +386,20 @@ int main(void)
         fb.vl_mm_s = Protocol_ClampI16(wl_mm_s);
         fb.vr_mm_s = Protocol_ClampI16(wr_mm_s);
     }
-    Protocol_Send_Feedback(&fb);
+    if (Vofa_Csv_Enabled()) {
+        /* M4-3 采集模式: USART1 改发 CSV, 一行 50Hz(主循环 20ms) */
+        Vofa_Send_Csv(HAL_GetTick() / 1000.0f,
+                      robot_state.target_rpm_L, robot_state.actual_rpm_L, SpeedPID_L.Out,
+                      robot_state.target_rpm_R, robot_state.actual_rpm_R, SpeedPID_R.Out);
+    } else {
+        Protocol_Send_Feedback(&fb);
 
-    /* USART3: VOFA 文本波形 */
-    Vofa_Send(robot_state.target_pulse_L, robot_state.raw_pulse_L,
-              robot_state.target_pulse_R, robot_state.raw_pulse_R,
-              YawHold_GetYaw(), YawHold_GetError(),
-              IMU_GetYawRate() * 57.29578f, YawHold_GetLastOut());
-
-    HAL_Delay(20);
+        /* USART3: VOFA 文本波形(仅非 CSV 模式发送, 采集时让出带宽和 CPU 时间) */
+        Vofa_Send(robot_state.target_rpm_L, robot_state.actual_rpm_L,
+                  robot_state.target_rpm_R, robot_state.actual_rpm_R,
+                  YawHold_GetYaw(), YawHold_GetError(),
+                  IMU_GetYawRate() * 57.29578f, YawHold_GetLastOut());
+    }
   /* USER CODE END 3 */
   }
 }
