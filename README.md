@@ -22,9 +22,9 @@
 - **IMU 航向保持** —— MPU6050 配合 DMP 输出偏航角，直行时自动修正角速度，抑制左右轮速差导致的跑偏。
 - **双控制源互斥** —— 手动（手柄）与自动（上位机）共用 `Chassis_Set_Cmd()` 一个下发入口；
   收到任一合法下行帧即切入 AUTO 模式，按手柄 START 键交还手动控制。
-- **PS2 手柄** —— 按键 / 摇杆两种操作模式（TRIANGLE 键切换），三挡速度增益。
+- **PS2 手柄** —— 按键 / 摇杆两种操作模式（TRIANGLE 键切换），单一固定速度档。
 - **上行反馈帧** —— 37 字节回传底盘速度、左右轮速、IMU 原始数据、航向环状态与电池电压。
-- **VOFA+ 在线调参** —— USART3 输出 8 通道文本波形，支持 `#` 命令在线改 PID 与刹车参数。
+- **VOFA+ 在线调参** —— USART3 输出 8 通道文本波形，支持 `#` 命令在线改 PID 与航向环参数。
 - **电池电压监测** —— PC1 采样，11:1 分压。
 - **OLED 可选** —— 由 `APP_USE_OLED` 单一宏控制，关闭时节省约 2.5KB FLASH 并释放主循环时间。
 
@@ -97,6 +97,8 @@ cmake --build build/Debug
 
 Release 构建把 `Debug` 换成 `Release` 即可。
 
+VS Code 下按 `Ctrl+Shift+B` 跑 `STM32: Build Debug`（等价于上面两条命令）。
+
 构建产物（每次编译自动生成）：
 
 | 文件 | 用途 |
@@ -161,7 +163,7 @@ Release 构建把 `Debug` 换成 `Release` 即可。
 | 35 | 1 | BCC = 前 35 字节异或 | |
 | 36 | 1 | `0x7D` | |
 
-`status` 位定义：bit0 = IMU 可用，bit1 = 上位机（AUTO）控制中，bit2-3 = 挡位索引（0~2）。
+`status` 位定义：bit0 = IMU 可用，bit1 = 上位机（AUTO）控制中，bit2-3 保留（原挡位字段，固件恒填 0）。
 
 **改帧布局前必须同步 6 处**：`protocol.h`、`protocol.c`、`main.c`、`chassis_link_test.py`、
 `check.py` / `pi_check.py`、`slam-car-hmi/bridge/chassis_driver.py`，改完必须跑自检：
@@ -177,26 +179,27 @@ SlamTest/
 ├── Core/                  CubeMX 生成的 HAL 初始化、中断与外设配置
 │   ├── Inc/
 │   └── Src/
-├── Lib/                   自研业务代码
-│   ├── Inc/
-│   └── Src/               kinematics / pid / pos_loop / motor / imu / yaw_hold /
-│                          protocol / vofa / ps2 / oled / adc ...
+├── Lib/                   自研业务代码（按功能分类，模块内分 inc/ 与 src/）
+│   ├── app/inc/           编译开关（app_config.h）
+│   ├── control/{inc,src}/ 位置式 PID / 运动学 / 航向保持 / 位置环
+│   ├── comm/{inc,src}/    二进制协议 / VOFA / PS2 手柄
+│   ├── driver/{inc,src}/  电机 PWM / ADC / 软件 I2C / OLED / MPU6050
+│   └── imu/{inc,src}/     IMU 姿态解算（DMP + InvenSense 驱动）
 ├── Drivers/               STM32F1xx HAL 驱动与 CMSIS
 ├── cmake/                 工具链文件 gcc-arm-none-eabi.cmake
 ├── docs/
-│   └── chassis_protocol_spec.md    协议规范（权威来源）
+│   ├── chassis_protocol_spec.md    协议规范（权威来源）
+│   └── M4/                         M4 四题原文（只读参考）
 ├── tools/
 │   ├── verify_protocol.py          协议一致性自检
 │   └── pid_demo.py                 PID 形式对比 + 位置环闭环仿真
-├── _at8236_example/       AT8236 电机驱动参考例程
-├── _sch_png/              C10B 主板原理图
-└── vofa_docs/             VOFA+ 使用说明
+└── .vscode/               VS Code 构建任务与工具链路径
 ```
 
 ## 开发约定
 
 - **单一权威来源**：协议以 `docs/chassis_protocol_spec.md` 为准；物理常量（轮距、轮径、编码器线数）
-  只允许定义在 `Lib/Src/kinematics.c` 一处，上位机不得复制。
+  只允许定义在 `Lib/control/src/kinematics.c` 一处，上位机不得复制。
 - **方向只翻一次**：对外坐标系与内部电极性的转换只发生在 `kinematics.c` 的
   `CHASSIS_V_SIGN` / `CHASSIS_W_SIGN` 两个宏，其它位置不得再翻符号。
 - **单位换算只在一层**：固件侧集中在 `protocol.c`，上位机侧集中在解析脚本的 `decode()`。
@@ -208,5 +211,5 @@ SlamTest/
 | 文档 | 内容 |
 |---|---|
 | [`docs/chassis_protocol_spec.md`](docs/chassis_protocol_spec.md) | 上下位机协议规范，唯一权威来源 |
+| [`docs/M4/`](docs/M4) | M4 四道题原文拷贝（只读，权威版本在考核仓库） |
 | [`AGENTS.md`](AGENTS.md) | 工程约束：烧录模式切换、协议同步清单、编译开关 |
-| [`vofa_docs/`](vofa_docs) | VOFA+ 上位机使用说明 |

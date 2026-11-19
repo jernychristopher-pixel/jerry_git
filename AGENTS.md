@@ -40,8 +40,8 @@
 
 | # | 文件 |
 |---|---|
-| 1 | `Lib/Inc/protocol.h`（布局注释 + struct） |
-| 2 | `Lib/Src/protocol.c`（`TX_LEN` / `RX_LEN` + 组帧） |
+| 1 | `Lib/comm/inc/protocol.h`（布局注释 + struct） |
+| 2 | `Lib/comm/src/protocol.c`（`TX_LEN` / `RX_LEN` + 组帧） |
 | 3 | `Core/Src/main.c`（填新字段） |
 | 4 | `chassis_link_test.py`（桌面 vmware share 与 slam-car-hmi/bridge 各一份） |
 | 5 | `check.py` / `pi_check.py`（`Desktop\脚本`） |
@@ -58,12 +58,12 @@ python tools/verify_protocol.py
 
 ## OLED 显示开关
 
-`Lib/Inc/app_config.h` 里的 `APP_USE_OLED` 是唯一开关（默认 `0` = 关）：
+`Lib/app/inc/app_config.h` 里的 `APP_USE_OLED` 是唯一开关（默认 `0` = 关）：
 
-- `0`：`Lib/Src/oled.c` 整体编译为空文件，`oled.h` 里所有 `OLED_xxx()` 退化成空操作，
+- `0`：`Lib/driver/src/oled.c` 整体编译为空文件，`oled.h` 里所有 `OLED_xxx()` 退化成空操作，
   `Core/Src/main.c` 里那段周期刷屏块被 `#if APP_USE_OLED` 排除。
   省约 2.5KB FLASH（50840 -> 48280B），主循环不再被软件 SPI 占用十几毫秒。
 - `1`：正常驱动 OLED（软件 SPI：PB3=DC PB4=RES PB5=SDA PC14=SCL）。
 
 只改这一个宏即可，不需要动 `CMakeLists.txt`。屏幕物理拆除/装回时同步改。
-开启后 OLED 上原本的 IMU 信息（YAW / Ry / Wc / E）已改由 USART1 上行帧下发，见 `Lib/Inc/protocol.h`。
+开启后 OLED 上原本的 IMU 信息（YAW / Ry / Wc / E）已改由 USART1 上行帧下发，见 `Lib/comm/inc/protocol.h`。

@@ -31,7 +31,7 @@ SlamTest 底盘 <-> 上位机（树莓派 / PC）之间数据交换的唯一约�
 与 ROS REP-103 一致。
 
 底盘内部坐标系（电机极性、编码器极性、PID、航向环标定）不得对外暴露。
-内外转换只允许发生在 `Lib/Src/kinematics.c` 的两个符号宏：
+内外转换只允许发生在 `Lib/control/src/kinematics.c` 的两个符号宏：
 
 ```c
 #define CHASSIS_V_SIGN   (-1.0f)
@@ -116,7 +116,7 @@ SlamTest 底盘 <-> 上位机（树莓派 / PC）之间数据交换的唯一约�
 |---|---|
 | bit0 | 1 = IMU 可用 |
 | bit1 | 1 = 上位机（AUTO）控制中 |
-| bit2-3 | 挡位索引，0=一挡，1=二挡，2=三挡 |
+| bit2-3 | 保留（原挡位字段）。固件只有单一速度档，恒填 `0`；上位机解码保持兼容 |
 
 ---
 
@@ -140,7 +140,7 @@ wz = (vr - vl) / 轮距
 ## 6. 物理常量的单一权威来源
 
 轮距、轮径、编码器线数、控制周期等物理常量**只允许**定义在
-`Lib/Src/kinematics.c` 一处。
+`Lib/control/src/kinematics.c` 一处。
 
 上位机**不得**复制这些常量。若某个量上位机确实需要，**必须**由固件放进上行帧下发
 （例如 `vl`/`vr` 就是为了让上位机不必知道轮距）。
@@ -152,7 +152,7 @@ wz = (vr - vl) / 轮距
 ## 7. 换算只在一层
 
 **固件侧**：线路单位（mm/s、mrad/s）与内部物理量（m/s、rad/s）之间的换算，
-只允许出现在 `Lib/Src/protocol.c`：
+只允许出现在 `Lib/comm/src/protocol.c`：
 
 - 收：`Protocol_Push_Byte()` 里 `mm/s -> m/s`、`mrad/s -> rad/s`
 - 发：`main.c` 组帧处 `* 1000.0f`，以及 `protocol.c` 的 `Protocol_ClampI16()`
@@ -174,8 +174,8 @@ wz = (vr - vl) / 轮距
 
 | # | 文件 | 要改什么 |
 |---|---|---|
-| 1 | `Lib/Inc/protocol.h` | 布局注释表 + `Protocol_Feedback_t` 成员 |
-| 2 | `Lib/Src/protocol.c` | `TX_LEN` / `RX_LEN` + 组帧语句 |
+| 1 | `Lib/comm/inc/protocol.h` | 布局注释表 + `Protocol_Feedback_t` 成员 |
+| 2 | `Lib/comm/src/protocol.c` | `TX_LEN` / `RX_LEN` + 组帧语句 |
 | 3 | `Core/Src/main.c` | 填新字段 |
 | 4 | 上位机 `chassis_link_test.py` | `FRAME_RX` + 校验偏移 + `decode()` |
 | 5 | 上位机 `check.py` | `FRAME_RX` + 校验偏移 + `parse()` |

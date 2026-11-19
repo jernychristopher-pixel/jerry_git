@@ -5,7 +5,7 @@
 第 1 节  用同一个电机模型跑"位置式"和"增量式"速度环。结论不是"谁更好",
          而是先证明一个精确事实: 不限幅时两者输出逐拍完全相同;
          差别只在输出饱和之后才出现。
-第 2 节  把 Lib/Src/pos_loop.c 的算法原样搬到 Python 闭环跑,
+第 2 节  把 Lib/control/src/pos_loop.c 的算法原样搬到 Python 闭环跑,
          验证默认增益能否走准 1 米、转准 90 度, 上板前先在这里试参数。
 
 只依赖标准库, python tools/pid_demo.py 即可运行。
@@ -42,7 +42,7 @@ class Motor(object):
 
 
 class PositionForm(object):
-    """位置式: 复刻 Lib/Src/pid.c 的 PID_Update。
+    """位置式: 复刻 Lib/control/src/pid.c 的 PID_Update。
 
         Out = Kp*e + Ki*Σe + Kd*(e - e_prev)
     输出是绝对控制量, 每拍重算, 不累加。
@@ -222,7 +222,7 @@ def section1():
 
 
 # ================= 第 2 节: 位置环闭环验证 =================
-# 以下常量与 Lib/Src/pos_loop.c 严格一一对应, 改一边记得改另一边
+# 以下常量与 Lib/control/src/pos_loop.c 严格一一对应, 改一边记得改另一边
 WHEEL_TRACK = 0.115
 WHEEL_PERIMETER = 0.2042
 ENCODER_CPR = 1456.0
@@ -251,7 +251,7 @@ def wrap_pi(a):
 
 
 class PosLoop(object):
-    """Lib/Src/pos_loop.c 的逐行镜像。"""
+    """Lib/control/src/pos_loop.c 的逐行镜像。"""
 
     def __init__(self, cfg=None):
         self.cfg = cfg or DEFAULT_CFG
@@ -398,7 +398,7 @@ def run_straight(distance, trim, use_yaw_loop, max_ticks=4000):
 def section2():
     print()
     print('=' * 78)
-    print('第 2 节  位置环闭环验证 (Lib/Src/pos_loop.c 的算法)')
+    print('第 2 节  位置环闭环验证 (Lib/control/src/pos_loop.c 的算法)')
     print('=' * 78)
     print("""
 场景: 右轮比左轮快 5% (trim=1.05), 模拟真实的左右轮速不一致。

@@ -1,0 +1,97 @@
+{
+    // Ctrl+Shift+B 默认跑 "STM32: Build Debug"，
+    // 产物在 build/Debug/SlamTest.bin（无线烧录用）和 SlamTest.hex。
+    // CMakeLists.txt 末尾的 POST_BUILD 规则负责生成这两个文件。
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "STM32: Configure Debug",
+            "type": "shell",
+            "command": "C:/Users/jerny/AppData/Local/stm32cube/bundles/cmake/4.0.1+st.3/bin/cmake.exe",
+            "args": [
+                "--preset",
+                "Debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PATH": "C:/Users/jerny/AppData/Local/stm32cube/bundles/ninja/1.13.1+st.1/bin;C:/Users/jerny/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
+                }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "STM32: Build Debug",
+            "type": "shell",
+            "command": "C:/Users/jerny/AppData/Local/stm32cube/bundles/cmake/4.0.1+st.3/bin/cmake.exe",
+            "args": [
+                "--build",
+                "--preset",
+                "Debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PATH": "C:/Users/jerny/AppData/Local/stm32cube/bundles/ninja/1.13.1+st.1/bin;C:/Users/jerny/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
+                }
+            },
+            "dependsOn": "STM32: Configure Debug",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "STM32: Build Release",
+            "type": "shell",
+            "command": "C:/Users/jerny/AppData/Local/stm32cube/bundles/cmake/4.0.1+st.3/bin/cmake.exe",
+            "args": [
+                "--build",
+                "--preset",
+                "Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PATH": "C:/Users/jerny/AppData/Local/stm32cube/bundles/ninja/1.13.1+st.1/bin;C:/Users/jerny/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
+                }
+            },
+            "dependsOn": "STM32: Configure Release",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "STM32: Configure Release",
+            "type": "shell",
+            "command": "C:/Users/jerny/AppData/Local/stm32cube/bundles/cmake/4.0.1+st.3/bin/cmake.exe",
+            "args": [
+                "--preset",
+                "Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PATH": "C:/Users/jerny/AppData/Local/stm32cube/bundles/ninja/1.13.1+st.1/bin;C:/Users/jerny/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
+                }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "STM32: Verify bin entry (0x08002000)",
+            "type": "shell",
+            "command": "C:/Users/jerny/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-readelf.exe",
+            "args": [
+                "-l",
+                "build/Debug/SlamTest.elf"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

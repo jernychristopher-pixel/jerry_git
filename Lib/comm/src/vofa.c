@@ -7,9 +7,6 @@
 #include "kinematics.h"
 #include <stdio.h>
 
-int gear = 1;
-float back_scale = 1.0f;   /* 后退速度补偿系数, 默认1.0, VOFA #H 调整 */
-
 float joy1_X = 0.0f;
 float joy1_Y = 0.0f;
 float joy2_X = 0.0f;
@@ -35,7 +32,7 @@ void Vofa_Start_Receive_IT(void)
 static float parse_float(const char *s)
 {
     float sign = 1.0f, val = 0.0f, frac = 0.0f, div = 1.0f;
-    while (*s == ' ' || *s == '\t') s++;          /* 允许 #O 1.0 这类带空格写法 */
+    while (*s == ' ' || *s == '\t') s++;          /* 允许 #A 1.0 这类带空格写法 */
     if (*s == '-') { sign = -1.0f; s++; }
     else if (*s == '+') s++;
     while (*s >= '0' && *s <= '9') { val = val * 10.0f + (float)(*s - '0'); s++; }
@@ -86,16 +83,10 @@ static void Parse_UART_Frame(char *buf)
             case 'D': SpeedPID_R.Kp = val; break;
             case 'E': SpeedPID_R.Ki = val; break;
             case 'F': SpeedPID_R.Kd = val; break;
-            case 'G': { long g = parse_int(buf + 2); if (g >= 1 && g <= 3) gear = (int)g; break; }
-            case 'H': { float s = parse_float(buf + 2); if (s > 0.1f && s < 3.0f) back_scale = s; break; }
             case 'I': YawHold_SetKp(parse_float(buf + 2)); break;
             case 'L': YawHold_SetKi(parse_float(buf + 2)); break;
             case 'M': YawHold_SetKd(parse_float(buf + 2)); break;
             case 'N': { long n = parse_int(buf + 2); YawHold_Enable(n != 0); break; }
-            /* 上限放到 20 / 8: 原 2.5 / 1.5 是刹车力度的实际瓶颈。
-             * 太高会在静止时因编码器量化噪声产生抖动/嗡鸣, 所以仍然保留上限。 */
-            case 'O': { float s = parse_float(buf + 2); if (s >= 0.0f && s <= 20.0f) brake_kp = s; break; }
-            case 'P': { float s = parse_float(buf + 2); if (s >= 0.0f && s <= 8.0f) brake_kd = s; break; }
             case 'R': PID_Init(&SpeedPID_L); PID_Init(&SpeedPID_R); break;
             case 'Q': cfg_dump_req = 1; cfg_dump_port = text_src; break;
             default: break;
@@ -271,10 +262,7 @@ void Vofa_Service(void)
     if (!cfg_dump_req) return;
     cfg_dump_req = 0;
 
-    char o[16], p[16], h[16], lkp[16], lki[16], lkd[16], rkp[16], rki[16], rkd[16];
-    Ftoa(o,   brake_kp,     2);
-    Ftoa(p,   brake_kd,     2);
-    Ftoa(h,   back_scale,   2);
+    char lkp[16], lki[16], lkd[16], rkp[16], rki[16], rkd[16];
     Ftoa(lkp, SpeedPID_L.Kp, 2);
     Ftoa(lki, SpeedPID_L.Ki, 2);
     Ftoa(lkd, SpeedPID_L.Kd, 2);
@@ -284,8 +272,8 @@ void Vofa_Service(void)
 
     char line[128];
     int n = snprintf(line, sizeof(line),
-                     "CFG gear=%d O=%s P=%s H=%s Lkp=%s Lki=%s Lkd=%s Rkp=%s Rki=%s Rkd=%s",
-                     gear, o, p, h, lkp, lki, lkd, rkp, rki, rkd);
+                     "CFG Lkp=%s Lki=%s Lkd=%s Rkp=%s Rki=%s Rkd=%s",
+                     lkp, lki, lkd, rkp, rki, rkd);
     if (n <= 0 || n >= (int)sizeof(line)) return;
 
     UART_HandleTypeDef *port = (cfg_dump_port != NULL) ? cfg_dump_port : &huart3;

@@ -22,7 +22,7 @@
  *  24    2   yaw_rate_mrad_s 零偏补偿后偏航角速率, mrad/s (OLED 的 Ry)
  *  26    2   yaw_hold_err_001deg 航向环角度偏差, 0.01度 (OLED 的 E)
  *  28    2   yaw_hold_out_mrad_s 航向环输出修正量, mrad/s (OLED 的 Wc)
-*  30    1   status          bit0=IMU可用 bit1=1:上位机(AUTO)控制中 bit2-3=挡位(0..2)
+*  30    1   status          bit0=IMU可用 bit1=1:上位机(AUTO)控制中 bit2-3=保留(恒0)
  *  31    2   vl_mm_s         左轮实测线速度 mm/s, 前进为正
  *  33    2   vr_mm_s         右轮实测线速度 mm/s, 前进为正
  *  35    1   BCC             前 35 字节异或

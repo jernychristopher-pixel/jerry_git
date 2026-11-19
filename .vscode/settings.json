@@ -19,6 +19,10 @@
     // 注意：工作区的 cmake.environment 会整体覆盖用户级同名设置，
     // 所以这里把用户级原有的两个扩展目录也保留下来了。
     "cmake.environment": {
-        "PATH": "C:/Users/jerny/AppData/Local/stm32cube/bundles/ninja/1.13.1+st.1/bin;C:/Users/jerny/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-win32-x64/resources/binaries/win32/x86_64;C:/Users/jerny/.vscode/extensions/stmicroelectronics.stm32cube-ide-build-cmake-1.46.0-win32-x64/resources/cube-cmake/win32/x86_64;${env.PATH}"
-    }
+        "PATH": "C:/Users/jerny/AppData/Local/stm32cube/bundles/ninja/1.13.1+st.1/bin;C:/Users/jerny/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;C:/Users/jerny/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.5.0-win32-x64/resources/binaries/win32/x86_64;C:/Users/jerny/.vscode/extensions/stmicroelectronics.stm32cube-ide-build-cmake-1.47.0-win32-x64/resources/cube-cmake/win32/x86_64;${env.PATH}"
+    },
+
+    // 只用 CMakePresets.json，不要再让插件自己生成一套 Kit。
+    "cmake.useCMakePresets": "always",
+    "cmake.configureOnOpen": true
 }

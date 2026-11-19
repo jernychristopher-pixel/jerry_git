@@ -44,8 +44,6 @@ typedef struct {
 } Robot_State_t;
 
 extern Robot_State_t robot_state;
-extern float brake_kp;   /* 刹车力度, VOFA #O 在线调 (默认10, 可用范围 0~20) */
-extern float brake_kd;   /* 刹车微分, VOFA #P 在线调 (默认0.3, 可用范围 0~8) */
 
 void Inverse_Kinematics(float V, float W);
 void Chassis_Control_Loop(void);

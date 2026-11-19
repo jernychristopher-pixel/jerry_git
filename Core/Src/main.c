@@ -37,6 +37,16 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+/* 手动控制只有一档速度, 全部集中在这里, 改速度只改这四个数:
+ *   MANUAL_V_FIXED  按键模式前进/后退线速度 (m/s)
+ *   MANUAL_W_FIXED  按键模式原地转向角速度 (rad/s)
+ *   JOY_V_PER_UNIT  摇杆模式: 每 1 格偏移对应多少 m/s
+ *   JOY_W_PER_UNIT  摇杆模式: 每 1 格偏移对应多少 rad/s
+ */
+#define MANUAL_V_FIXED   0.512f
+#define MANUAL_W_FIXED   1.739f
+#define JOY_V_PER_UNIT   0.004f
+#define JOY_W_PER_UNIT   0.050f
 
 /* USER CODE END PD */
 
@@ -152,13 +162,11 @@ int main(void)
         IMU_NotifyStill();
     }
 
-    static uint32_t last_gear_ms = 0;
     static uint32_t last_reinit_ms = 0;
     static uint8_t  bad_frames = 0;
     static int16_t  lx0 = 128, ly0 = 128;   /* 上电标定的摇杆中点 */
     static uint8_t  calib_done = 0;
     static uint8_t  ctrl_mode = 0;      /* 0=按键模式(默认) 1=摇杆模式 */
-    static const float gear_gain[3] = {0.5f, 1.0f, 1.5f};
 
     /* 帧判定与旧版一致(0x5A),另加保护: 数字模式/掉线时四个摇杆字节全0视为无效,
        连续无效约1秒才重新配置手柄,正常行驶中不干扰手柄 */
@@ -252,11 +260,6 @@ int main(void)
             Chassis_Set_Mode(CHASSIS_MODE_MANUAL);
         }
 
-        if ((key & 0x0001) && (key & 0x0400) &&
-            (pressed & 0x0401) && HAL_GetTick() - last_gear_ms >= 500) {
-            gear = (gear % 3) + 1;
-            last_gear_ms = HAL_GetTick();
-        }
     }
 
     int dlx = lx - lx0;
@@ -264,28 +267,26 @@ int main(void)
     if (dlx > -2 && dlx < 2) dlx = 0;   /* 转向死区,抑制中点抖动 */
     if (dly > -8 && dly < 8) dly = 0;
 
-    float gain = gear_gain[gear - 1];
     float V, W;
 
     if (ctrl_mode == 0) {
-        /* 按键模式(默认): 方向键四键, 排除摇杆漂移的人为因素 */
+        /* 按键模式(默认): 方向键四键, 排除摇杆漂移的人为因素。
+         * 速度只有固定一档: 前进/后退 0.512 m/s, 原地转 1.739 rad/s。 */
         float bv = 0.0f, bw = 0.0f;
         if (key & 0x0040) bv += 1.0f;   /* 前进 */
         if (key & 0x0010) bv -= 1.0f;   /* 后退 */
         if (key & 0x0020) bw += 1.0f;   /* 左转 */
         if (key & 0x0080) bw -= 1.0f;   /* 右转 */
-        V = bv * 0.512f * gain;
+        V = bv * MANUAL_V_FIXED;
         /* 原地拐弯: 左右轮等速反向, 每轮固定0.10m/s (W=2*0.10/0.115=1.739rad/s) */
-        W = bw * 1.739f;
+        W = bw * MANUAL_W_FIXED;
     } else {
-        /* 摇杆模式 */
-        V = -dly * 0.004f * gain;
-        W = -dlx * 0.050f * gain;
+        /* 摇杆模式: 推杆幅度直接映射成速度, 不再乘挡位系数 */
+        V = -dly * JOY_V_PER_UNIT;
+        W = -dlx * JOY_W_PER_UNIT;
     }
 
-    if (V < 0.0f) V *= back_scale;   /* 后退目标按系数缩放, 与前进速度对称 */
-
-    /* 手动命令统一经 Chassis_Set_Cmd 下发; 斜坡/死区/逆解算已移到 TIM1 控制环,
+    /* 手动命令统一经 Chassis_Set_Cmd 下发; 死区/逆解算/速度环都在 TIM1 控制环,
        自动模式(SLAM)下手动命令会被拒绝, 按手柄START键可交还手动控制 */
     Chassis_Set_Cmd(V, W, CHASSIS_SRC_MANUAL);
 
@@ -333,9 +334,6 @@ int main(void)
                  PS2_Data[1], (unsigned)Vofa_GetRxErr());
         OLED_PutString(0, 32, buf2, OLED_COLOR_WHITE);
 
-        snprintf(buf2, sizeof(buf2), "GEAR %d", gear);
-        OLED_PutString(0, 40, buf2, OLED_COLOR_WHITE);
-
         Ftoa(buf, IMU_GetYawRate() * 57.29578f, 1);
         char buf4[16];
         Ftoa(buf4, YawHold_GetLastOut(), 2);
@@ -346,7 +344,7 @@ int main(void)
     }
 #endif /* APP_USE_OLED */
 
-    /* USART1: 树莓派 37字节反馈帧 (布局见 Lib/Inc/protocol.h) */
+    /* USART1: 树莓派 37字节反馈帧 (布局见 Lib/comm/protocol.h) */
     Protocol_Feedback_t fb;
     fb.flag_stop  = 0x00;                        /* 0=电机使能 */
     fb.vx_mm_s    = (int16_t)Chassis_GetVx_MmS();
@@ -364,9 +362,9 @@ int main(void)
     fb.yaw_rate_mrad_s     = Protocol_ClampI16(IMU_GetYawRate() * 1000.0f);
     fb.yaw_hold_err_001deg = Protocol_ClampI16(YawHold_GetError() * 100.0f);
     fb.yaw_hold_out_mrad_s = Protocol_ClampI16(YawHold_GetLastOut() * 1000.0f);
+    /* bit0=IMU可用, bit1=自动模式; bit2-3 原为挡位, 现只有单一速度档, 固定填 0 */
     fb.status              = (uint8_t)((IMU_IsOk() ? 0x01u : 0x00u) |
-                                       (Chassis_Get_Mode() == CHASSIS_MODE_AUTO ? 0x02u : 0x00u) |
-                                       (uint8_t)(((gear >= 1 && gear <= 3 ? gear : 1) - 1) << 2));
+                                       (Chassis_Get_Mode() == CHASSIS_MODE_AUTO ? 0x02u : 0x00u));
     {
         float wl_mm_s, wr_mm_s;
         Chassis_GetWheels_MmS(&wl_mm_s, &wr_mm_s);

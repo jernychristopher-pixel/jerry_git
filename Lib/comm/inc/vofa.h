@@ -7,9 +7,6 @@
 
 #define RX_BUF_SIZE 32
 
-extern int gear;
-extern float back_scale;
-
 extern float joy1_X;
 extern float joy1_Y;
 extern float joy2_X;

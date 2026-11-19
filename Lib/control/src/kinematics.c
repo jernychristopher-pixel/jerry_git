@@ -6,25 +6,14 @@
 #include <math.h>
 
 // ===== 物理常量已上移到 kinematics.h, 全工程唯一来源, 这里不再重复定义 =====
-#define CTRL_PERIOD      0.025f   // 25ms 控制周期
-#define EMA_ALPHA        0.4f     // actual-speed EMA coefficient
+#define CTRL_PERIOD      0.025f   /* TIM1 控制周期 25ms, 与 CubeMX 配置保持一致 */
+#define EMA_ALPHA        0.4f     /* 显示用低通系数, 越大越跟手 */
 
-/* 自动模式断线保护: 超过 200ms(8个25ms节拍)未收到新指令 → 减速停车 */
+/* 自动模式断线保护: 超过 200ms(8个25ms节拍)未收到新指令 → 目标归零 */
 #define AUTO_TIMEOUT_TICKS  8U
-/* 目标速度斜坡: 每个25ms节拍的最大变化量; 减速斜坡更陡, 刹车更果断 */
-#define RAMP_DV_UP_MAX    0.10f
-#define RAMP_DV_DOWN_MAX  0.30f
-#define RAMP_DW_MAX       0.75f
-/* 目标过小直接归零, 抑制爬行 */
-#define DEADBAND_V   0.02f
-#define DEADBAND_W   0.04f
-/* 停车刹车: 无积分强力比例+微分制动; 力度可通过VOFA #O 在线调 */
-#define BRAKE_KP_DEFAULT  10.0f
-#define BRAKE_KD_DEFAULT  0.3f
-/* 刹车输出斜率限幅: 每个25ms节拍制动量的最大变化 (%), 越小越柔和 */
-#define BRAKE_SLEW_MAX    25.0f
-float brake_kp = BRAKE_KP_DEFAULT;
-float brake_kd = BRAKE_KD_DEFAULT;
+/* 目标死区: 太小的速度直接当 0, 抑制静止时的爬行和嗡鸣 */
+#define DEADBAND_V   0.02f   /* m/s */
+#define DEADBAND_W   0.04f   /* rad/s */
 
 // 运动学状态全局变量
 Robot_State_t robot_state;
@@ -103,15 +92,19 @@ void Chassis_GetWheels_MmS(float *vl_mm_s, float *vr_mm_s) {
 }
 
 /**
- * @brief 25ms 定时器中断回调函数 (系统的发动机)
- * 需要在 TIM1 的中断里调用此函数！
+ * @brief 速度环主体: 目标速度 → 运动学逆解 → 位置式 PID → PWM
+ *
+ * 设计原则: 速度控制只保留一个位置式 PID。
+ *   - 不做加减速斜坡: 目标怎么变, PID 就怎么跟, 参数含义单一;
+ *   - 不写单独的刹车状态机: 目标为 0 时误差 = -实际速度,
+ *     PID 输出自然反向, 制动由 PID 自己完成;
+ *   - 手动/自动的区分只发生在命令入口, 到这里已经统一成 V/W。
+ *
+ * 调用位置: TIM1 更新中断, 每 25ms 一次。
  */
-void Chassis_Control_Loop(void) {
-    static float curV = 0.0f, curW = 0.0f;   /* 斜坡后的实际指令, 手动/自动共用 */
-    static float filt_L = 0.0f;
-    static float filt_R = 0.0f;
-
-    // 1. 读取命令: 自动模式超时未喂狗 → 目标归零减速停车
+void Chassis_Control_Loop(void)
+{
+    /* 1. 取命令。自动模式超过 200ms 没收到新指令就归零, 防止上位机掉线后飞车 */
     float tV = cmd_V;
     float tW = cmd_W;
     if (chassis_mode == CHASSIS_MODE_AUTO) {
@@ -123,34 +116,29 @@ void Chassis_Control_Loop(void) {
         }
     }
 
-    // 2. 航向保持: 直行时叠加IMU偏航修正; 传实际轮速, 刹车滑行期间继续钳制
+    /* 2. 航向保持: 直行时用 IMU 偏航误差补一个很小的 W。
+     *    传入实际轮速, 让车在减速/滑行阶段也继续被钳住方向。 */
     tW += YawHold_Process(tV, tW,
               fabsf(robot_state.raw_pulse_L) + fabsf(robot_state.raw_pulse_R));
-    float dV = tV - curV;
-    float dW = tW - curW;
-    if (dV >  RAMP_DV_UP_MAX)   dV =  RAMP_DV_UP_MAX;
-    if (dV < -RAMP_DV_DOWN_MAX) dV = -RAMP_DV_DOWN_MAX;
-    if (dW >  RAMP_DW_MAX) dW =  RAMP_DW_MAX;
-    if (dW < -RAMP_DW_MAX) dW = -RAMP_DW_MAX;
-    curV += dV;
-    curW += dW;
 
-    if (!(curV > DEADBAND_V || curV < -DEADBAND_V ||
-          curW > DEADBAND_W || curW < -DEADBAND_W)) {
-        curV = 0.0f;
-        curW = 0.0f;
-    }
+    /* 3. 目标死区: 太小的 V/W 直接当 0, 避免电机在零点附近嗡嗡爬行。
+     *    分轴判断, 这样"只转向不前进"时 V 归零不会把 W 一起清掉。 */
+    if (fabsf(tV) < DEADBAND_V) tV = 0.0f;
+    if (fabsf(tW) < DEADBAND_W) tW = 0.0f;
 
-    // 4. 逆解算: 实际指令 → 左右轮目标脉冲
-    Inverse_Kinematics(curV, curW);
+    /* 4. 逆解: 底盘 V/W → 左右轮在 25ms 内应该走多少脉冲 */
+    Inverse_Kinematics(tV, tW);
 
-    // 5. 极速读取编码器脉冲并清零
+    /* 5. 读编码器: 硬件计数器读完后清零, 得到本周期脉冲数。
+     *    右轮取负号是因为电机/编码器安装方向与左轮相反, 只在这里翻一次。 */
     short pulse_L = (short)__HAL_TIM_GET_COUNTER(&htim4);
     short pulse_R = -(short)__HAL_TIM_GET_COUNTER(&htim8);
     __HAL_TIM_SET_COUNTER(&htim4, 0);
     __HAL_TIM_SET_COUNTER(&htim8, 0);
 
-    // EMA 滤波仅用于 OLED 显示; PID 用原始脉冲,保持调好的动态响应
+    /* EMA 只用于显示与上报的平滑; 速度环反馈仍用原始脉冲, 不额外引入相位滞后 */
+    static float filt_L = 0.0f;
+    static float filt_R = 0.0f;
     filt_L = EMA_ALPHA * (float)pulse_L + (1.0f - EMA_ALPHA) * filt_L;
     filt_R = EMA_ALPHA * (float)pulse_R + (1.0f - EMA_ALPHA) * filt_R;
 
@@ -159,61 +147,15 @@ void Chassis_Control_Loop(void) {
     robot_state.actual_pulse_L = filt_L;
     robot_state.actual_pulse_R = filt_R;
 
-    // 6. 位置式 PID：目标脉冲 vs 实际脉冲
-    int pwm_L, pwm_R;
-    /* 刹车分支状态: 是否在刹车中, 上一拍刹车输出(斜率限幅用), 上一拍误差 */
-    static uint8_t brk_active = 0;
-    static float   brk_out_L  = 0.0f, brk_out_R  = 0.0f;
-    static float   brk_prev_L = 0.0f, brk_prev_R = 0.0f;
-    if (fabsf(robot_state.target_pulse_L) < 0.5f && fabsf(robot_state.target_pulse_R) < 0.5f) {
-        /* 刹车模式: 目标接近零, 无积分强力比例+微分制动,
-           防止积分卷绕造成停车冲量; 刹车期间航向环的小差速目标并入,
-           停稳后自动落入硬件刹车 */
-        float err_L = robot_state.target_pulse_L - robot_state.raw_pulse_L;
-        float err_R = robot_state.target_pulse_R - robot_state.raw_pulse_R;
+    /* 6. 位置式 PID: 目标脉冲 vs 实际脉冲。
+     *    目标为 0 时误差 = -实际脉冲, 输出反向, 这就是电机制动。 */
+    SpeedPID_L.Target = robot_state.target_pulse_L;
+    SpeedPID_L.Actual = (float)pulse_L;
+    SpeedPID_R.Target = robot_state.target_pulse_R;
+    SpeedPID_R.Actual = (float)pulse_R;
+    PID_Update(&SpeedPID_L);
+    PID_Update(&SpeedPID_R);
 
-        /* 刚进入刹车: 丢弃上一轮微分历史, 输出从零重建,
-           避免刹车首拍直接跳到满幅造成顿挫 */
-        if (!brk_active) {
-            brk_prev_L = err_L;   brk_prev_R = err_R;
-            brk_out_L  = 0.0f;    brk_out_R  = 0.0f;
-            brk_active = 1;
-        }
-
-        float want_L = brake_kp * err_L + brake_kd * (err_L - brk_prev_L);
-        float want_R = brake_kp * err_R + brake_kd * (err_R - brk_prev_R);
-        brk_prev_L = err_L;   brk_prev_R = err_R;
-
-        /* 输出斜率限幅: 制动量按固定速率建立, 把单拍饱和冲量摊到几拍,
-           同时抹平低速时编码器量化造成的台阶 */
-        float d_L = want_L - brk_out_L;
-        float d_R = want_R - brk_out_R;
-        if (d_L >  BRAKE_SLEW_MAX) d_L =  BRAKE_SLEW_MAX;
-        if (d_L < -BRAKE_SLEW_MAX) d_L = -BRAKE_SLEW_MAX;
-        if (d_R >  BRAKE_SLEW_MAX) d_R =  BRAKE_SLEW_MAX;
-        if (d_R < -BRAKE_SLEW_MAX) d_R = -BRAKE_SLEW_MAX;
-        brk_out_L += d_L;
-        brk_out_R += d_R;
-
-        if (brk_out_L >  100.0f) brk_out_L =  100.0f;
-        if (brk_out_L < -100.0f) brk_out_L = -100.0f;
-        if (brk_out_R >  100.0f) brk_out_R =  100.0f;
-        if (brk_out_R < -100.0f) brk_out_R = -100.0f;
-
-        pwm_L = (int)brk_out_L;
-        pwm_R = (int)brk_out_R;
-    } else {
-        brk_active = 0;
-        SpeedPID_L.Target = robot_state.target_pulse_L;
-        SpeedPID_L.Actual = (float)pulse_L;
-        SpeedPID_R.Target = robot_state.target_pulse_R;
-        SpeedPID_R.Actual = (float)pulse_R;
-        PID_Update(&SpeedPID_L);
-        PID_Update(&SpeedPID_R);
-        pwm_L = (int)SpeedPID_L.Out;
-        pwm_R = (int)SpeedPID_R.Out;
-    }
-
-    // 7. 驱动底盘硬件
-    Set_Motor_PWM(pwm_L, pwm_R);
+    /* 7. PID 输出是 -100..100 的占空比百分比, 交给电机驱动 */
+    Set_Motor_PWM((int)SpeedPID_L.Out, (int)SpeedPID_R.Out);
 }

@@ -22,8 +22,8 @@ import contextlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 
-FIRMWARE_H = os.path.join(REPO, "Lib", "Inc", "protocol.h")
-FIRMWARE_C = os.path.join(REPO, "Lib", "Src", "protocol.c")
+FIRMWARE_H = os.path.join(REPO, "Lib", "comm", "inc", "protocol.h")
+FIRMWARE_C = os.path.join(REPO, "Lib", "comm", "src", "protocol.c")
 
 SLAM_HMI = os.path.join(os.path.expanduser("~"), "Documents", "Codex",
                         "2026-09-11", "ni", "outputs", "slam-car-hmi")
