@@ -20,7 +20,7 @@ static uint8_t bcc(const uint8_t *buf, uint8_t len) {
 /*
  * 逐字节喂入, 状态机:
  *   见到0x7B重新对齐帧头; 收满11字节后校验帧尾与BCC;
- *   合法帧立即切入自动模式并下发V/W。
+ *   合法帧立即下发V/W。
  */
 void Protocol_Push_Byte(uint8_t ch) {
     if (ch == 0x7B) {
@@ -42,8 +42,7 @@ void Protocol_Push_Byte(uint8_t ch) {
             float V = vx / 1000.0f;   /* mm/s -> m/s */
             float W = wz / 1000.0f;   /* mrad/s -> rad/s */
 
-            Chassis_Set_Mode(CHASSIS_MODE_AUTO);
-            Chassis_Set_Cmd(V, W, CHASSIS_SRC_AUTO);
+            Chassis_Set_Cmd(V, W);
         }
         rx_idx = 0;
     }

@@ -15,7 +15,7 @@
 #define YAW_STOP_PULSES    (3.0f)     /* 两侧脉冲和低于此值视为真静止(约0.017m/s) */
 #define YAW_W_TURN_EPS     (0.02f)    /* 主动转向判定阈值 rad/s */
 
-#define CTRL_DT  (0.025f)             /* 与运动学控制周期一致 */
+#define CTRL_DT  (0.010f)             /* 与运动学控制周期一致 */
 #define DEG2RAD  (0.01745329252f)
 
 static uint8_t hold_enabled = 1;
@@ -49,7 +49,7 @@ float YawHold_GetLastOut(void) {
 }
 
 /**
- * @brief 每25ms控制节拍调用: 返回应叠加到W上的修正量
+ * @brief 每10ms控制节拍调用: 返回应叠加到W上的修正量
  * 直行时锁死角速率(目标=0): 积分连续累积不放泄, 收敛后保持一个
  * 恒定差速把车"钳"在直线上; 死区只作用在P/D项上, 避免死区边缘
  * 的修正-衰减-再修正周期循环(表现为毛刺尖峰和来回漂).

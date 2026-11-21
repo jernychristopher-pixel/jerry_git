@@ -156,7 +156,7 @@ float PosLoop_GetDistErr(void)    { return d_err; }
 float PosLoop_GetYawErrDeg(void)  { return y_err * RAD2DEG; }
 
 /**
-  * 函    数：位置环主体, 每 25ms 调用一次
+ * 函    数：位置环主体, 每 10ms 调用一次
   * 参    数：pulse_L / pulse_R 本拍左右轮脉冲增量 (前进为正)
   * 返 回 值：1 = 本拍判定到位
   */

@@ -1,6 +1,6 @@
 # SlamTest
 
-基于 STM32F103 的双轮差速底盘固件。实现速度闭环、IMU 航向保持、PS2 手柄遥控，
+基于 STM32F103 的双轮差速底盘固件。实现速度闭环与 IMU 航向保持，
 并通过二进制串口协议与上位机（树莓派 / PC）对接，作为 SLAM 小车的运动执行层。
 
 ## 目录
@@ -20,9 +20,8 @@
 - **双轮差速运动学** —— 由 `V`（线速度）、`W`（角速度）逆解出左右轮目标，轮距 115mm、轮径 65mm。
 - **左右独立速度闭环** —— 编码器实测脉冲经位置式 PID 得出 PWM 占空比，两轮各自闭环。
 - **IMU 航向保持** —— MPU6050 配合 DMP 输出偏航角，直行时自动修正角速度，抑制左右轮速差导致的跑偏。
-- **双控制源互斥** —— 手动（手柄）与自动（上位机）共用 `Chassis_Set_Cmd()` 一个下发入口；
-  收到任一合法下行帧即切入 AUTO 模式，按手柄 START 键交还手动控制。
-- **PS2 手柄** —— 按键 / 摇杆两种操作模式（TRIANGLE 键切换），单一固定速度档。
+- **单一控制源** —— 底盘没有本地手动控制源，所有 `V/W` 只来自上位机下行帧，
+  `Chassis_Set_Cmd()` 是唯一入口；200 ms 收不到新帧自动归零。
 - **上行反馈帧** —— 37 字节回传底盘速度、左右轮速、IMU 原始数据、航向环状态与电池电压。
 - **VOFA+ 在线调参** —— USART3 输出 8 通道文本波形，支持 `#` 命令在线改 PID 与航向环参数。
 - **电池电压监测** —— PC1 采样，11:1 分压。
@@ -36,14 +35,13 @@
 | 主控板 | WHEELTEC C10B |
 | 电机驱动 | AT8236 |
 | 姿态传感器 | MPU6050（软件 I2C） |
-| 遥控器 | PS2 手柄 |
 | 上位机 | 树莓派 / PC |
 
 ### 外设与引脚分配
 
 | 外设 | 引脚 | 用途 |
 |---|---|---|
-| TIM1 | — | 控制环时基，40Hz（25ms） |
+| TIM1 | — | 控制环时基，100Hz（10ms） |
 | TIM3 CH1 / CH2 | PA6 / PA7 | 左电机 IN1 / IN2 |
 | TIM3 CH3 / CH4 | PB0 / PB1 | 右电机 IN2 / IN1 |
 | TIM4 CH1 / CH2 | PB6 / PB7 | 左轮编码器 |
@@ -52,24 +50,23 @@
 | USART3 | PB10 / PB11 | VOFA+ 波形输出，230400 8N1 |
 | ADC1_IN11 | PC1 | 电池电压，11:1 分压 |
 | 软件 I2C | PB14 / PB15 | MPU6050（SCL / SDA） |
-| PS2 | PB8 / PC9 / PC4 / PC8 | DI / DO / CS / CLK |
 | 软件 SPI | PB3 / PB4 / PB5 / PC14 | OLED（DC / RES / SDA / SCL），默认关闭 |
 
 ## 控制架构
 
 ```text
-   PS2 手柄                     上位机（树莓派 / PC）
-       │                                │
-       │ 手动命令                        │ 11 字节下行帧 @115200
-       ▼                                ▼
+                        上位机（树莓派 / PC）
+                              │
+                              │ 11 字节下行帧 @115200
+                              ▼
   ┌──────────────────────────────────────────┐
-  │   Chassis_Set_Cmd(V, W, src)             │  唯一命令入口
-  │   手动模式 / AUTO 模式互斥                 │
+  │   Chassis_Set_Cmd(V, W)                  │  唯一命令入口
+  │   纯上位机控制，200ms 无帧自动归零          │
   └────────────────────┬─────────────────────┘
                        │  逆运动学（轮距 115mm）
                        ▼
   ┌──────────────────────────────────────────┐
-  │   TIM1 控制环 @ 40Hz (25ms)              │
+  │   TIM1 控制环 @ 100Hz (10ms)             │
   │     ├── 航向保持：IMU 偏航角修正 W         │
   │     ├── 左右轮速度 PID                    │
   │     └── PWM 输出                         │
@@ -141,7 +138,7 @@ VS Code 下按 `Ctrl+Shift+B` 跑 `STM32: Build Debug`（等价于上面两条�
 | 9 | 1 | BCC = 前 9 字节异或 |
 | 10 | 1 | `0x7D` |
 
-上位机必须以 20 ~ 50 Hz 持续发送；AUTO 模式下 200ms 收不到新包即自动减速停车。
+上位机必须以 20 ~ 50 Hz 持续发送；200ms 收不到新包即自动减速停车。
 
 ### 上行反馈帧（底盘 → 上位机，37 字节）
 
@@ -163,7 +160,8 @@ VS Code 下按 `Ctrl+Shift+B` 跑 `STM32: Build Debug`（等价于上面两条�
 | 35 | 1 | BCC = 前 35 字节异或 | |
 | 36 | 1 | `0x7D` | |
 
-`status` 位定义：bit0 = IMU 可用，bit1 = 上位机（AUTO）控制中，bit2-3 保留（原挡位字段，固件恒填 0）。
+`status` 位定义：bit0 = IMU 可用，bit1 = 上位机控制中（纯上位机版本恒为 1），
+bit2-3 保留（原挡位字段，固件恒填 0）。
 
 **改帧布局前必须同步 6 处**：`protocol.h`、`protocol.c`、`main.c`、`chassis_link_test.py`、
 `check.py` / `pi_check.py`、`slam-car-hmi/bridge/chassis_driver.py`，改完必须跑自检：
@@ -182,7 +180,7 @@ SlamTest/
 ├── Lib/                   自研业务代码（按功能分类，模块内分 inc/ 与 src/）
 │   ├── app/inc/           编译开关（app_config.h）
 │   ├── control/{inc,src}/ 位置式 PID / 运动学 / 航向保持 / 位置环
-│   ├── comm/{inc,src}/    二进制协议 / VOFA / PS2 手柄
+│   ├── comm/{inc,src}/    二进制协议 / VOFA 文本
 │   ├── driver/{inc,src}/  电机 PWM / ADC / 软件 I2C / OLED / MPU6050
 │   └── imu/{inc,src}/     IMU 姿态解算（DMP + InvenSense 驱动）
 ├── Drivers/               STM32F1xx HAL 驱动与 CMSIS
@@ -199,8 +197,8 @@ SlamTest/
 ## 开发约定
 
 - **单一权威来源**：协议以 `docs/chassis_protocol_spec.md` 为准；物理常量（轮距、轮径、编码器线数）
-  只允许定义在 `Lib/control/src/kinematics.c` 一处，上位机不得复制。
-- **方向只翻一次**：对外坐标系与内部电极性的转换只发生在 `kinematics.c` 的
+  只允许定义在 `Lib/control/inc/kinematics.h` 一处，上位机不得复制。
+- **方向只翻一次**：对外坐标系与内部电极性的转换只发生在 `kinematics.h` 的
   `CHASSIS_V_SIGN` / `CHASSIS_W_SIGN` 两个宏，其它位置不得再翻符号。
 - **单位换算只在一层**：固件侧集中在 `protocol.c`，上位机侧集中在解析脚本的 `decode()`。
 - **改协议必跑自检**：`python tools/verify_protocol.py`，它会把固件与各上位机脚本的帧长、

@@ -7,11 +7,6 @@
 #include "kinematics.h"
 #include <stdio.h>
 
-float joy1_X = 0.0f;
-float joy1_Y = 0.0f;
-float joy2_X = 0.0f;
-float joy2_Y = 0.0f;
-
 /* USART1: 树莓派二进制协议; USART3: VOFA文本 + 无线烧录reset复位 */
 static uint8_t uart1_rx_byte = 0;
 static uint8_t uart3_rx_byte = 0;
@@ -59,57 +54,40 @@ static void Parse_UART_Frame(char *buf)
     if (buf[0] != '#') return; // 无效帧
 
     char cmd = buf[1];
-    char *comma = strchr(buf, ',');
+    float val = parse_float(buf + 2);
 
-    // ============== 1. 带逗号：摇杆 ==============
-    if (comma != NULL) {
-        *comma = '\0';
-        float x = parse_float(buf + 2);
-        float y = parse_float(comma + 1);
-
-        switch (cmd) {
-            case 'J': joy1_X = x; joy1_Y = y; break;
-            case 'K': joy2_X = x; joy2_Y = y; break;
-            default: break;
-        }
-    }
-    // ============== 2. 无逗号：滑块/命令 ==============
-    else {
-        float val = parse_float(buf + 2);
-
-        switch (cmd) {
-            case 'A': SpeedPID_L.Kp = val; break;
-            case 'B': SpeedPID_L.Ki = val; break;
-            case 'C': SpeedPID_L.Kd = val; break;
-            case 'D': SpeedPID_R.Kp = val; break;
-            case 'E': SpeedPID_R.Ki = val; break;
-            case 'F': SpeedPID_R.Kd = val; break;
-            case 'I': YawHold_SetKp(parse_float(buf + 2)); break;
-            case 'L': YawHold_SetKi(parse_float(buf + 2)); break;
-            case 'M': YawHold_SetKd(parse_float(buf + 2)); break;
-            case 'N': { long n = parse_int(buf + 2); YawHold_Enable(n != 0); break; }
-            /* M4-3: #S 0/1/2 切 P/PI/PID; #T <rpm> 直接给左右轮同速目标;
-             * #X 退出轮速整定模式, 回到手柄/自动的 V/W 控制。 */
-            case 'S': {
-                long preset = parse_int(buf + 2);
-                if (preset >= 0 && preset <= 2) {
-                    PID_Apply_Preset(&SpeedPID_L, (unsigned)preset);
-                    PID_Apply_Preset(&SpeedPID_R, (unsigned)preset);
-                }
-                break;
+    switch (cmd) {
+        case 'A': SpeedPID_L.Kp = val; break;
+        case 'B': SpeedPID_L.Ki = val; break;
+        case 'C': SpeedPID_L.Kd = val; break;
+        case 'D': SpeedPID_R.Kp = val; break;
+        case 'E': SpeedPID_R.Ki = val; break;
+        case 'F': SpeedPID_R.Kd = val; break;
+        case 'I': YawHold_SetKp(val); break;
+        case 'L': YawHold_SetKi(val); break;
+        case 'M': YawHold_SetKd(val); break;
+        case 'N': { long n = parse_int(buf + 2); YawHold_Enable(n != 0); break; }
+        /* M4-3: #S 0/1/2 切 P/PI/PID; #T <rpm> 直接给左右轮同速目标;
+         * #X 退出轮速整定模式, 回到上位机的 V/W 控制。 */
+        case 'S': {
+            long preset = parse_int(buf + 2);
+            if (preset >= 0 && preset <= 2) {
+                PID_Apply_Preset(&SpeedPID_L, (unsigned)preset);
+                PID_Apply_Preset(&SpeedPID_R, (unsigned)preset);
             }
-            case 'T': {
-                float rpm = parse_float(buf + 2);
-                Chassis_Set_Wheel_Rpm(rpm, rpm);
-                break;
-            }
-            case 'X': Chassis_Exit_Wheel_Rpm(); break;
-            /* #V 1 开启 CSV 文本输出(暂停 USART1 二进制帧), #V 0 关闭 */
-            case 'V': { long v = parse_int(buf + 2); csv_mode = (v != 0); break; }
-            case 'R': PID_Init(&SpeedPID_L); PID_Init(&SpeedPID_R); break;
-            case 'Q': cfg_dump_req = 1; cfg_dump_port = text_src; break;
-            default: break;
+            break;
         }
+        case 'T': {
+            float rpm = parse_float(buf + 2);
+            Chassis_Set_Wheel_Rpm(rpm, rpm);
+            break;
+        }
+        case 'X': Chassis_Exit_Wheel_Rpm(); break;
+        /* #V 1 开启 CSV 文本输出(暂停 USART1 二进制帧), #V 0 关闭 */
+        case 'V': { long v = parse_int(buf + 2); csv_mode = (v != 0); break; }
+        case 'R': PID_Init(&SpeedPID_L); PID_Init(&SpeedPID_R); break;
+        case 'Q': cfg_dump_req = 1; cfg_dump_port = text_src; break;
+        default: break;
     }
 }
 

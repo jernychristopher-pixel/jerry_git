@@ -22,23 +22,15 @@
 #define CHASSIS_V_SIGN   (-1.0f)
 #define CHASSIS_W_SIGN   (+1.0f)
 
-/* 底盘控制模式: 手动(手柄) / 自动(SLAM上位机) */
-typedef enum {
-    CHASSIS_MODE_MANUAL = 0,
-    CHASSIS_MODE_AUTO   = 1
-} Chassis_Mode_t;
-
-/* 速度命令来源, 与当前控制模式匹配才会被采纳 */
-typedef enum {
-    CHASSIS_SRC_MANUAL = 0,
-    CHASSIS_SRC_AUTO   = 1
-} Chassis_Src_t;
+/* 纯上位机控制: 底盘没有本地手动控制源, V/W 只来自 USART1 下行帧。 */
 
 typedef struct {
-    float target_pulse_L;
-    float target_pulse_R;
-    float raw_pulse_L;      /* 原始脉冲: PID 反馈 + VOFA 波形 */
+    float target_rpm_L;     /* 目标轮速 r/min: PID 给定 */
+    float target_rpm_R;
+    float raw_pulse_L;      /* 本周期原始脉冲: 协议上报与静止判断 */
     float raw_pulse_R;
+    float actual_rpm_L;     /* 实测轮速 r/min: 3 拍滑动窗口, PID 反馈 */
+    float actual_rpm_R;
     float actual_pulse_L;   /* EMA 滤波后: OLED 显示 */
     float actual_pulse_R;
 } Robot_State_t;
@@ -48,10 +40,19 @@ extern Robot_State_t robot_state;
 void Inverse_Kinematics(float V, float W);
 void Chassis_Control_Loop(void);
 
-/* 统一速度命令入口: V(m/s), W(rad/s), 手动与自动唯一的下发通道 */
-void Chassis_Set_Cmd(float V, float W, Chassis_Src_t src);
-void Chassis_Set_Mode(Chassis_Mode_t mode);
-Chassis_Mode_t Chassis_Get_Mode(void);
+/* 单位换算: 本周期脉冲数 <-> r/min */
+float Pulse_To_Rpm(float pulse);
+float Rpm_To_Pulse(float rpm);
+float Mps_To_Rpm(float v);
+
+/* M4-3 速度环整定: 直接以左右轮 r/min 为目标, 绕过 V/W 逆解。
+ * 进入后航向保持不参与, 退出后回到上位机 V/W 控制。 */
+void Chassis_Set_Wheel_Rpm(float left_rpm, float right_rpm);
+void Chassis_Exit_Wheel_Rpm(void);
+void Chassis_GetWheelRpm(float *left_rpm, float *right_rpm);
+
+/* 统一速度命令入口: V(m/s), W(rad/s), 只接受上位机下发 */
+void Chassis_Set_Cmd(float V, float W);
 
 /* 供串口反馈使用: 由左右轮实际速度正解出底盘速度 */
 float Chassis_GetVx_MmS(void);   /* 前进速度 mm/s */

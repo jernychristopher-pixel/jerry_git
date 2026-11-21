@@ -15,7 +15,7 @@
  * 试过 5 拍(50ms): 低速纹波更小, 但加速段窗口里混入旧值, 60 r/min 超调反而变大。 */
 #define RPM_WINDOW       3
 
-/* 自动模式断线保护: 超过 200ms(20个10ms节拍)未收到新指令 → 目标归零 */
+/* 上位机断线保护: 超过 200ms(20个10ms节拍)未收到新指令 → 目标归零 */
 #define AUTO_TIMEOUT_TICKS  20U
 /* 目标死区: 太小的速度直接当 0, 抑制静止时的爬行和嗡鸣 */
 #define DEADBAND_V   0.02f   /* m/s */
@@ -27,37 +27,22 @@ Robot_State_t robot_state;
 /* 命令邮箱: 主循环写, TIM1 10ms中断读; 写入时关中断保证成对更新 */
 static volatile float    cmd_V = 0.0f;
 static volatile float    cmd_W = 0.0f;
-static volatile uint8_t  chassis_mode = CHASSIS_MODE_MANUAL;
 static volatile uint32_t auto_ticks = 0;
 /* M4-3 轮速整定模式: 目标直接是左右轮 r/min, 不走 V/W 逆解 */
 static volatile float    wheel_rpm_target_L = 0.0f;
 static volatile float    wheel_rpm_target_R = 0.0f;
 static volatile uint8_t  wheel_rpm_enable = 0;
 
-void Chassis_Set_Mode(Chassis_Mode_t mode) {
-    chassis_mode = (uint8_t)mode;
-}
-
-Chassis_Mode_t Chassis_Get_Mode(void) {
-    return (Chassis_Mode_t)chassis_mode;
-}
-
 /**
- * @brief 统一速度命令入口: 手柄与SLAM(串口)都必须走这里下发 V/W
- *        命令来源与当前模式不匹配时直接拒绝, 防止双方抢写目标速度
+ * @brief 统一速度命令入口: 上位机下行帧和文本命令都走这里
+ *        纯上位机版本没有本地手动控制源, 因此不再做模式互斥
  */
-void Chassis_Set_Cmd(float V, float W, Chassis_Src_t src) {
-    if (src == CHASSIS_SRC_AUTO) {
-        if (chassis_mode != CHASSIS_MODE_AUTO) return;
-        auto_ticks = 0;          /* 喂狗: 自动命令仍然有效 */
-    } else {
-        if (chassis_mode != CHASSIS_MODE_MANUAL) return;
-    }
-
+void Chassis_Set_Cmd(float V, float W) {
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
     cmd_V = CHASSIS_V_SIGN * V;   /* 对外坐标系 -> 内部电机坐标系 */
     cmd_W = CHASSIS_W_SIGN * W;
+    auto_ticks = 0;               /* 喂狗: 收到新的上位机命令 */
     if (primask == 0) __enable_irq();
 }
 
@@ -71,13 +56,17 @@ void Chassis_Set_Wheel_Rpm(float left_rpm, float right_rpm) {
     if (primask == 0) __enable_irq();
 }
 
-/* 退出轮速整定模式, 回到手柄/自动的 V/W 控制 */
+/* 退出轮速整定模式, 回到上位机的 V/W 控制 */
 void Chassis_Exit_Wheel_Rpm(void) {
     uint32_t primask = __get_PRIMASK();
     __disable_irq();
     wheel_rpm_enable = 0;
     wheel_rpm_target_L = 0.0f;
     wheel_rpm_target_R = 0.0f;
+    /* 不沿用退出前的旧命令, 等上位机重新下发; 否则 #X 后车会突然动一下 */
+    cmd_V = 0.0f;
+    cmd_W = 0.0f;
+    auto_ticks = AUTO_TIMEOUT_TICKS;
     /* 退出整定时把积分/微分历史一起清掉, 否则 target=0 时
      * 积分项会冻结在上一次的出力上, 电机停着还一直顶着 PWM。 */
     PID_Init(&SpeedPID_L);
@@ -163,16 +152,14 @@ void Chassis_Control_Loop(void)
         robot_state.target_rpm_L = wheel_rpm_target_L;
         robot_state.target_rpm_R = wheel_rpm_target_R;
     } else {
-        /* 1. 取命令。自动模式超过 200ms 没收到新指令就归零, 防止上位机掉线后飞车 */
+        /* 1. 取命令。超过 200ms 没收到新指令就归零, 防止上位机掉线后飞车 */
         float tV = cmd_V;
         float tW = cmd_W;
-        if (chassis_mode == CHASSIS_MODE_AUTO) {
-            if (auto_ticks >= AUTO_TIMEOUT_TICKS) {
-                tV = 0.0f;
-                tW = 0.0f;
-            } else {
-                auto_ticks++;
-            }
+        if (auto_ticks >= AUTO_TIMEOUT_TICKS) {
+            tV = 0.0f;
+            tW = 0.0f;
+        } else {
+            auto_ticks++;
         }
 
         /* 2. 航向保持: 直行时用 IMU 偏航误差补一个很小的 W。

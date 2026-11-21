@@ -18,14 +18,14 @@
  *     Out = Kp*e + Ki*Σe + Kd*(e - e_prev)
  * 输出直接是"绝对控制量", 每个节拍重算一次、不累加 —— 这正是位置式与增量式的分界。
  *
- * 节拍: 固定 25ms 一拍, 与 Chassis_Control_Loop() 同节拍。
+ * 节拍: 固定 10ms 一拍, 与 Chassis_Control_Loop() 同节拍。
  * 本模块是纯算法, 不依赖 HAL, 也不自己驱动电机; 谁调用谁负责把
  * PosLoop_GetV()/PosLoop_GetW() 下发出去。
  */
 
 typedef struct {
     float kp;   /* 比例 */
-    float ki;   /* 积分 (每个 25ms 节拍累加一次误差) */
+float ki;   /* 积分 (每个 10ms 节拍累加一次误差) */
     float kd;   /* 微分 (对误差差分, 不是对测量差分) */
 } PosPID_Gains_t;
 
@@ -54,7 +54,7 @@ void PosLoop_Stop(void);
 uint8_t PosLoop_IsActive(void);
 uint8_t PosLoop_IsDone(void);
 
-/* 每 25ms 调用一次, 传入本拍的左右轮脉冲增量。
+/* 每 10ms 调用一次, 传入本拍的左右轮脉冲增量。
    脉冲必须已按对外坐标系标定 (前进为正), 即 CHASSIS_V_SIGN * raw_pulse。
    返回值: 1 = 本拍判定到位 */
 uint8_t PosLoop_Feed(float pulse_L, float pulse_R);

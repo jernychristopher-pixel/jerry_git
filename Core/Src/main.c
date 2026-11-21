@@ -17,7 +17,6 @@
 #include "oled.h"
 #include "app_config.h"
 #include <stdio.h>
-#include <string.h>
 #include "pid.h"
 #include "motor.h"
 #include "vofa.h"
@@ -25,7 +24,6 @@
 #include "protocol.h"
 #include "imu.h"
 #include "yaw_hold.h"
-#include "ps2.h"
 #include "adc.h"
 
 /* USER CODE END Includes */
@@ -37,17 +35,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-/* 手动控制只有一档速度, 全部集中在这里, 改速度只改这四个数:
- *   MANUAL_V_FIXED  按键模式前进/后退线速度 (m/s)
- *   MANUAL_W_FIXED  按键模式原地转向角速度 (rad/s)
- *   JOY_V_PER_UNIT  摇杆模式: 每 1 格偏移对应多少 m/s
- *   JOY_W_PER_UNIT  摇杆模式: 每 1 格偏移对应多少 rad/s
- */
-#define MANUAL_V_FIXED   0.512f
-#define MANUAL_W_FIXED   1.739f
-#define JOY_V_PER_UNIT   0.004f
-#define JOY_W_PER_UNIT   0.050f
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -137,8 +124,6 @@ int main(void)
   __HAL_TIM_SET_COUNTER(&htim8, 0);
   HAL_TIM_Base_Start_IT(&htim1);
 
-  PS2_Init();
-  PS2_EnableAnalog();
   Battery_ADC_Init();
   // TEST: 注释掉下面这行看电机转不转
   // Inverse_Kinematics(0.2f, 0.0f);
@@ -165,7 +150,6 @@ int main(void)
       next_tick = now_tick + 20;
     }
 
-    PS2_ReadData();
     Vofa_Rx_Reattach();   /* 串口出错后兜底重挂接收, 防止 RX 永久静默 */
     Vofa_Service();       /* #Q 参数回读: 主循环发出, 不挤占串口中断 */
     IMU_Read();   /* 轮询DMP FIFO, 更新偏航角 */
@@ -174,134 +158,6 @@ int main(void)
         robot_state.actual_rpm_R < 4.0f && robot_state.actual_rpm_R > -4.0f) {
         IMU_NotifyStill();
     }
-
-    static uint32_t last_reinit_ms = 0;
-    static uint8_t  bad_frames = 0;
-    static int16_t  lx0 = 128, ly0 = 128;   /* 上电标定的摇杆中点 */
-    static uint8_t  calib_done = 0;
-    static uint8_t  ctrl_mode = 0;      /* 0=按键模式(默认) 1=摇杆模式 */
-
-    /* 帧判定与旧版一致(0x5A),另加保护: 数字模式/掉线时四个摇杆字节全0视为无效,
-       连续无效约1秒才重新配置手柄,正常行驶中不干扰手柄 */
-    uint8_t frame_ok = (PS2_Data[2] == 0x5A) &&
-                       !(PS2_Data[5] == 0 && PS2_Data[6] == 0 &&
-                         PS2_Data[7] == 0 && PS2_Data[8] == 0);
-    if (frame_ok) {
-        bad_frames = 0;
-    } else if (++bad_frames > 40 && (HAL_GetTick() - last_reinit_ms >= 1000)) {
-        PS2_SetInit();
-        last_reinit_ms = HAL_GetTick();
-        bad_frames = 0;
-    }
-
-    int lx = 128, ly = 128;
-    uint16_t key = 0;
-
-    if (frame_ok) {
-        lx = PS2_Data[PSS_LX];
-        ly = PS2_Data[PSS_LY];
-
-        /* 上电后采样20帧"稳定且接近中间"的数据标定中点(上电时摇杆必须松开,
-           有人拨杆导致抖动则放弃这批数据重新采样) */
-        if (!calib_done) {
-            static int32_t acc_x = 0, acc_y = 0;
-            static int16_t min_x = 255, max_x = 0, min_y = 255, max_y = 0;
-            static uint8_t  calib_cnt = 0;
-            if (lx > 108 && lx < 148 && ly > 108 && ly < 148) {
-                acc_x += lx;
-                acc_y += ly;
-                if (lx < min_x) min_x = (int16_t)lx;
-                if (lx > max_x) max_x = (int16_t)lx;
-                if (ly < min_y) min_y = (int16_t)ly;
-                if (ly > max_y) max_y = (int16_t)ly;
-                if (++calib_cnt >= 20) {
-                    if ((max_x - min_x) <= 4 && (max_y - min_y) <= 4) {
-                        lx0 = (int16_t)(acc_x / 20);
-                        ly0 = (int16_t)(acc_y / 20);
-                        calib_done = 1;
-                    } else {
-                        acc_x = 0; acc_y = 0;
-                        min_x = 255; max_x = 0; min_y = 255; max_y = 0;
-                        calib_cnt = 0;
-                    }
-                }
-            }
-        }
-
-        /* 中点慢速跟踪: 摇杆长时间稳定停在中间附近时, 每次只修正1格,
-           补偿兼容手柄随温度/使用时间的中点漂移; 大角度转向不受影响 */
-        if (calib_done) {
-            static int16_t  last_lx = 0, last_ly = 0;
-            static uint16_t steady_cnt = 0;
-            int16_t ax = (int16_t)lx - lx0;
-            int16_t ay = (int16_t)ly - ly0;
-            if (ax >= -10 && ax <= 10 && ay >= -12 && ay <= 12) {
-                int16_t dx = (int16_t)lx - last_lx;
-                int16_t dy = (int16_t)ly - last_ly;
-                if (dx >= -2 && dx <= 2 && dy >= -2 && dy <= 2) {
-                    if (++steady_cnt >= 50) {
-                        if (ax > 0) lx0++;
-                        else if (ax < 0) lx0--;
-                        if (ay > 0) ly0++;
-                        else if (ay < 0) ly0--;
-                        steady_cnt = 0;
-                    }
-                } else {
-                    steady_cnt = 0;
-                }
-            } else {
-                steady_cnt = 0;
-            }
-            last_lx = (int16_t)lx;
-            last_ly = (int16_t)ly;
-        }
-
-        for (uint8_t i = 0; i < 8; i++) {
-            if (PS2_Data[3] & (1 << i)) key |= (uint16_t)(1 << i);
-            if (PS2_Data[4] & (1 << i)) key |= (uint16_t)(1 << (i + 8));
-        }
-
-        static uint16_t last_key = 0;
-        uint16_t pressed = key & ~last_key;
-        last_key = key;
-
-        if (pressed & 0x1000) {          /* TRIANGLE: 切换 按键/摇杆 模式 */
-            ctrl_mode = !ctrl_mode;
-        }
-
-        if (pressed & 0x0008) {          /* START: 自动模式交还手动控制 */
-            Chassis_Set_Mode(CHASSIS_MODE_MANUAL);
-        }
-
-    }
-
-    int dlx = lx - lx0;
-    int dly = ly - ly0;
-    if (dlx > -2 && dlx < 2) dlx = 0;   /* 转向死区,抑制中点抖动 */
-    if (dly > -8 && dly < 8) dly = 0;
-
-    float V, W;
-
-    if (ctrl_mode == 0) {
-        /* 按键模式(默认): 方向键四键, 排除摇杆漂移的人为因素。
-         * 速度只有固定一档: 前进/后退 0.512 m/s, 原地转 1.739 rad/s。 */
-        float bv = 0.0f, bw = 0.0f;
-        if (key & 0x0040) bv += 1.0f;   /* 前进 */
-        if (key & 0x0010) bv -= 1.0f;   /* 后退 */
-        if (key & 0x0020) bw += 1.0f;   /* 左转 */
-        if (key & 0x0080) bw -= 1.0f;   /* 右转 */
-        V = bv * MANUAL_V_FIXED;
-        /* 原地拐弯: 左右轮等速反向, 每轮固定0.10m/s (W=2*0.10/0.115=1.739rad/s) */
-        W = bw * MANUAL_W_FIXED;
-    } else {
-        /* 摇杆模式: 推杆幅度直接映射成速度, 不再乘挡位系数 */
-        V = -dly * JOY_V_PER_UNIT;
-        W = -dlx * JOY_W_PER_UNIT;
-    }
-
-    /* 手动命令统一经 Chassis_Set_Cmd 下发; 死区/逆解算/速度环都在 TIM1 控制环,
-       自动模式(SLAM)下手动命令会被拒绝, 按手柄START键可交还手动控制 */
-    Chassis_Set_Cmd(V, W, CHASSIS_SRC_MANUAL);
 
 #if APP_USE_OLED
     static uint8_t tick = 0;
@@ -326,27 +182,10 @@ int main(void)
         }
         OLED_PutString(0, 16, buf2, OLED_COLOR_WHITE);
 
-        if (Chassis_Get_Mode() == CHASSIS_MODE_AUTO) {
-            snprintf(buf, sizeof(buf), "AUTO");
-        } else {
-            const char *vdir = (V > 0.02f) ? "FWD" : ((V < -0.02f) ? "BWD" : "");
-            const char *wdir = (W > 0.04f) ? "LEFT" : ((W < -0.04f) ? "RIGHT" : "");
-            if (vdir[0] != 0 && wdir[0] != 0) {
-                snprintf(buf, sizeof(buf), "%s %s", vdir, wdir);
-            } else if (vdir[0] != 0) {
-                snprintf(buf, sizeof(buf), "%s", vdir);
-            } else if (wdir[0] != 0) {
-                snprintf(buf, sizeof(buf), "%s", wdir);
-            } else {
-                snprintf(buf, sizeof(buf), "STOP");
-            }
-            size_t used = strlen(buf);
-            snprintf(buf + used, sizeof(buf) - used, " MAN");
-        }
+        snprintf(buf, sizeof(buf), "HOST");
         OLED_PutString(0, 24, buf, OLED_COLOR_WHITE);
 
-        snprintf(buf2, sizeof(buf2), "%s ID:%02X E:%u", (ctrl_mode ? "JOY" : "BTN"),
-                 PS2_Data[1], (unsigned)Vofa_GetRxErr());
+        snprintf(buf2, sizeof(buf2), "HOST E:%u", (unsigned)Vofa_GetRxErr());
         OLED_PutString(0, 32, buf2, OLED_COLOR_WHITE);
 
         Ftoa(buf, IMU_GetYawRate() * 57.29578f, 1);
@@ -377,9 +216,8 @@ int main(void)
     fb.yaw_rate_mrad_s     = Protocol_ClampI16(IMU_GetYawRate() * 1000.0f);
     fb.yaw_hold_err_001deg = Protocol_ClampI16(YawHold_GetError() * 100.0f);
     fb.yaw_hold_out_mrad_s = Protocol_ClampI16(YawHold_GetLastOut() * 1000.0f);
-    /* bit0=IMU可用, bit1=自动模式; bit2-3 原为挡位, 现只有单一速度档, 固定填 0 */
-    fb.status              = (uint8_t)((IMU_IsOk() ? 0x01u : 0x00u) |
-                                       (Chassis_Get_Mode() == CHASSIS_MODE_AUTO ? 0x02u : 0x00u));
+    /* bit0=IMU可用, bit1=上位机控制中(纯上位机版本恒为1); bit2-3 固定填 0 */
+    fb.status              = (uint8_t)((IMU_IsOk() ? 0x01u : 0x00u) | 0x02u);
     {
         float wl_mm_s, wr_mm_s;
         Chassis_GetWheels_MmS(&wl_mm_s, &wr_mm_s);

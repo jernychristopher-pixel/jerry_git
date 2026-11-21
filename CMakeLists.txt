@@ -36,7 +36,7 @@ enable_language(C ASM)
 # Lib 按功能分目录, 每个功能内部再分 inc/ (头文件) 与 src/ (源文件):
 #   app/inc          编译开关与应用级配置
 #   control/{inc,src} 控制算法(位置式 PID / 运动学 / 航向保持 / 位置环)
-#   comm/{inc,src}    通信(二进制协议 / VOFA 文本 / PS2 手柄)
+#   comm/{inc,src}    通信(二进制协议 / VOFA 文本)
 #   driver/{inc,src}  外设驱动(电机 PWM / ADC / 软件 I2C / OLED / MPU6050)
 #   imu/{inc,src}     IMU 姿态解算(DMP 与 InvenSense 驱动)
 add_executable(${CMAKE_PROJECT_NAME}
@@ -46,7 +46,6 @@ add_executable(${CMAKE_PROJECT_NAME}
         Lib/driver/src/oled.c
         Lib/control/src/kinematics.c
         Lib/comm/src/protocol.c
-        Lib/comm/src/ps2.c
         Lib/driver/src/i2c_sw.c
         Lib/driver/src/mpu6050.c
         Lib/imu/src/inv_mpu.c
