@@ -17,4 +17,15 @@
   */
 #define APP_USE_OLED   0
 
+/**
+  * M4-4 协议模式开关
+  *   0 = 原 SlamTest 协议 (0x7B/0x7D + BCC, 11 字节下行 / 37 字节上行)
+  *   1 = M4-4 协议 (0xAA55 + len + id + seq + payload + CRC16)
+  * 两种协议共用 USART1, 不能同时开启。
+  * M4-4 现场编译时把它改成 1; 日常跑车保持 0。
+  */
+#ifndef APP_USE_M44_PROTOCOL
+#define APP_USE_M44_PROTOCOL 0
+#endif
+
 #endif /* __APP_CONFIG_H */

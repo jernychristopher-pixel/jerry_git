@@ -7,6 +7,10 @@
 #include "kinematics.h"
 #include <stdio.h>
 
+#if APP_USE_M44_PROTOCOL
+#include "m44_protocol.h"
+#endif
+
 /* USART1: 树莓派二进制协议; USART3: VOFA文本 + 无线烧录reset复位 */
 static uint8_t uart1_rx_byte = 0;
 static uint8_t uart3_rx_byte = 0;
@@ -18,9 +22,26 @@ static UART_HandleTypeDef *cfg_dump_port = NULL;
 static volatile uint8_t cfg_dump_req = 0;
 static volatile uint8_t csv_mode = 0;
 
+#if APP_USE_M44_PROTOCOL
+static M44_Context g_m44;
+
+static void M44_Write(const uint8_t *data, uint16_t len)
+{
+    HAL_UART_Transmit(&huart1, (uint8_t *)data, len, 10);
+}
+
+static void M44_OnVelocity(int16_t left_rpm, int16_t right_rpm)
+{
+    Chassis_Set_Wheel_Rpm((float)left_rpm, (float)right_rpm);
+}
+#endif
+
 /* 开启两路串口接收中断（必须调用！） */
 void Vofa_Start_Receive_IT(void)
 {
+#if APP_USE_M44_PROTOCOL
+    M44_Init(&g_m44, M44_Write, M44_OnVelocity, NULL);
+#endif
     HAL_UART_Receive_IT(&huart1, &uart1_rx_byte, 1);
     HAL_UART_Receive_IT(&huart3, &uart3_rx_byte, 1);
 }
@@ -135,6 +156,7 @@ static void Vofa_Push_Byte(uint8_t ch) {
     }
 }
 
+#if !APP_USE_M44_PROTOCOL
 /*
  * USART1 文本命令入口 (树莓派 Type-C)。
  * 帧间空闲且首字节为井号时, 按 VOFA 调参命令解析; 其余字节原样交给二进制控制帧。
@@ -171,12 +193,18 @@ static void Vofa_Push_Byte_USART1(uint8_t ch)
         t1_idx = 0;
     }
 }
+#endif /* !APP_USE_M44_PROTOCOL */
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart == &huart1) {
+#if APP_USE_M44_PROTOCOL
+        /* M4-4: USART1 只跑 0xAA55 + CRC16 协议 */
+        M44_RxByte_ISR(&g_m44, uart1_rx_byte);
+#else
         /* USART1: 树莓派 Wheeltec 二进制控制帧, 兼收 '#' 在线调参命令 */
         Vofa_Push_Byte_USART1(uart1_rx_byte);
+#endif
         HAL_UART_Receive_IT(&huart1, &uart1_rx_byte, 1);
     } else if (huart == &huart3) {
         /* USART3: VOFA 文本调参 + 无线烧录 reset 复位 */
@@ -184,6 +212,31 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         HAL_UART_Receive_IT(&huart3, &uart3_rx_byte, 1);
     }
 }
+
+#if APP_USE_M44_PROTOCOL
+void Vofa_M44_Poll(void)
+{
+    M44_Poll(&g_m44, HAL_GetTick());
+}
+
+void Vofa_M44_Service(int16_t left_rpm, int16_t right_rpm,
+                      int16_t pitch_001deg, int16_t yaw_001deg,
+                      uint8_t status_bits)
+{
+    static uint32_t next_tx = 0;
+    uint32_t now = HAL_GetTick();
+
+    if ((int32_t)(now - next_tx) >= 0) {
+        M44_SendStatus(&g_m44, left_rpm, right_rpm,
+                       pitch_001deg, yaw_001deg, status_bits);
+        next_tx += 50u;
+        /* 主循环 20ms 一拍, 如果已经落后超过一整拍, 不补发, 重新对齐 */
+        if ((int32_t)(now - next_tx) >= 0) {
+            next_tx = now + 50u;
+        }
+    }
+}
+#endif
 
 /*
  * HAL 的坑: 串口一旦出现 ORE/FE/NE, HAL 会执行 UART_EndRxTransfer() 关掉接收中断,
@@ -200,6 +253,13 @@ uint16_t Vofa_GetRxErr(void)
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     rx_err_cnt++;
+#if APP_USE_M44_PROTOCOL
+    if (huart == &huart1) {
+        /* 波特率错/线上干扰时 HAL 会报 FE/NE/ORE, 计入 M4-4 坏帧 */
+        M44_OnUartError(&g_m44,
+                        (huart->ErrorCode & HAL_UART_ERROR_ORE) ? 1u : 0u);
+    }
+#endif
     __HAL_UART_CLEAR_PEFLAG(huart);
     if (huart->Instance == USART1) {
         HAL_UART_Receive_IT(&huart1, &uart1_rx_byte, 1);

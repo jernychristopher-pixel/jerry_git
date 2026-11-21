@@ -1,6 +1,7 @@
 #ifndef __VOFA_H
 #define __VOFA_H
 
+#include "app_config.h"
 #include "stm32f1xx_hal.h"
 #include "usart.h"
 #include <string.h>
@@ -20,4 +21,13 @@ void Vofa_Send_Csv(float t, float target_l, float actual_l, float pwm_l,
 
 uint16_t Vofa_GetRxErr(void);
 void Vofa_Rx_Reattach(void);
+
+#if APP_USE_M44_PROTOCOL
+/* M4-4: 主循环每 20ms 调 Poll; Service 内部按 50ms 发状态帧 */
+void Vofa_M44_Poll(void);
+void Vofa_M44_Service(int16_t left_rpm, int16_t right_rpm,
+                      int16_t pitch_001deg, int16_t yaw_001deg,
+                      uint8_t status_bits);
+#endif
+
 #endif

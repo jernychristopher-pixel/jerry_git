@@ -25,6 +25,9 @@
 #include "imu.h"
 #include "yaw_hold.h"
 #include "adc.h"
+#if APP_USE_M44_PROTOCOL
+#include "m44_protocol.h"
+#endif
 
 /* USER CODE END Includes */
 
@@ -152,6 +155,9 @@ int main(void)
 
     Vofa_Rx_Reattach();   /* 串口出错后兜底重挂接收, 防止 RX 永久静默 */
     Vofa_Service();       /* #Q 参数回读: 主循环发出, 不挤占串口中断 */
+#if APP_USE_M44_PROTOCOL
+    Vofa_M44_Poll();      /* M4-4: 环形缓冲 -> 状态机 -> 速度指令 */
+#endif
     IMU_Read();   /* 轮询DMP FIFO, 更新偏航角 */
     /* 车轮静止时慢速跟踪陀螺零偏, 抑制温漂引起的残余漂移 */
     if (robot_state.actual_rpm_L < 4.0f && robot_state.actual_rpm_L > -4.0f &&
@@ -198,7 +204,21 @@ int main(void)
     }
 #endif /* APP_USE_OLED */
 
-    /* USART1: 树莓派 37字节反馈帧 (布局见 Lib/comm/protocol.h) */
+    /* USART1: 树莓派反馈帧 */
+#if APP_USE_M44_PROTOCOL
+    {
+        uint8_t status_bits = M44_STATUS_MOTOR_ON;
+        if (IMU_IsOk()) {
+            status_bits |= M44_STATUS_IMU_OK;
+        }
+        Vofa_M44_Service((int16_t)robot_state.actual_rpm_L,
+                         (int16_t)robot_state.actual_rpm_R,
+                         Protocol_ClampI16(IMU_GetPitch() * 100.0f),
+                         Protocol_ClampI16(IMU_GetYaw() * 100.0f),
+                         status_bits);
+    }
+#else
+    /* 原 SlamTest 37字节反馈帧 (布局见 Lib/comm/protocol.h) */
     Protocol_Feedback_t fb;
     fb.flag_stop  = 0x00;                        /* 0=电机使能 */
     fb.vx_mm_s    = (int16_t)Chassis_GetVx_MmS();
@@ -238,6 +258,7 @@ int main(void)
                   YawHold_GetYaw(), YawHold_GetError(),
                   IMU_GetYawRate() * 57.29578f, YawHold_GetLastOut());
     }
+#endif /* APP_USE_M44_PROTOCOL */
   /* USER CODE END 3 */
   }
 }

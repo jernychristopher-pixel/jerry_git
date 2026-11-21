@@ -46,6 +46,7 @@ add_executable(${CMAKE_PROJECT_NAME}
         Lib/driver/src/oled.c
         Lib/control/src/kinematics.c
         Lib/comm/src/protocol.c
+        Lib/comm/src/m44_protocol.c
         Lib/driver/src/i2c_sw.c
         Lib/driver/src/mpu6050.c
         Lib/imu/src/inv_mpu.c
@@ -83,6 +84,17 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined symbols
 )
+
+# M4-4 协议模式: 默认关闭, 保持原 SlamTest 37 字节协议。
+# 现场编译 M4-4 时:
+#   cmake -S . -B build/M44 -DAPP_USE_M44_PROTOCOL=ON ...
+#   cmake --build build/M44
+option(APP_USE_M44_PROTOCOL "Use M4-4 AA55+CRC16 protocol" OFF)
+if(APP_USE_M44_PROTOCOL)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+        APP_USE_M44_PROTOCOL=1
+    )
+endif()
 
 # Remove wrong libob.a library dependency when using cpp files
 list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
