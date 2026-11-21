@@ -33,6 +33,11 @@ static volatile float    wheel_rpm_target_L = 0.0f;
 static volatile float    wheel_rpm_target_R = 0.0f;
 static volatile uint8_t  wheel_rpm_enable = 0;
 
+/* M4-2 测速: 在 10ms 控制环里累计脉冲, 主循环按 1s 窗口读取。
+ * 由控制环统一累加可以避免主循环与 TIM1 中断相位不一致时重复/漏掉某一拍。 */
+static volatile int32_t  enc_total_L = 0;
+static volatile int32_t  enc_total_R = 0;
+
 /**
  * @brief 统一速度命令入口: 上位机下行帧和文本命令都走这里
  *        纯上位机版本没有本地手动控制源, 因此不再做模式互斥
@@ -77,6 +82,19 @@ void Chassis_Exit_Wheel_Rpm(void) {
 void Chassis_GetWheelRpm(float *left_rpm, float *right_rpm) {
     *left_rpm = robot_state.actual_rpm_L;
     *right_rpm = robot_state.actual_rpm_R;
+}
+
+/* M4-2: 读取累计脉冲, reset=1 时读完清零 (1s 窗口测速用) */
+void Chassis_Read_Encoder_Total(int32_t *left, int32_t *right, uint8_t reset) {
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    if (left)  *left  = enc_total_L;
+    if (right) *right = enc_total_R;
+    if (reset) {
+        enc_total_L = 0;
+        enc_total_R = 0;
+    }
+    if (primask == 0) __enable_irq();
 }
 
 /**
@@ -193,6 +211,9 @@ void Chassis_Control_Loop(void)
     robot_state.raw_pulse_R = (float)pulse_R;
     robot_state.actual_pulse_L = filt_L;
     robot_state.actual_pulse_R = filt_R;
+
+    enc_total_L += (int32_t)pulse_L;
+    enc_total_R += (int32_t)pulse_R;
 
     /* 6. 脉冲 -> r/min: PID 给定与反馈统一成 r/min, 不再和编码器计数绑定。
      *    先用 RPM_WINDOW(当前为 3)拍滑动窗口求和, 再换算成 r/min, 压低低速量化纹波。 */

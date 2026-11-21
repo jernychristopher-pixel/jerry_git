@@ -36,12 +36,14 @@
 
 `docs/chassis_protocol_spec.md` 是**唯一权威来源**，改任何帧字段前先读它。
 
-上行反馈帧是 **37 字节**。改帧长或布局必须同步 6 个位置，缺一不可：
+协议是 `AA 55 | len | id | seq | payload | CRC16`（小端，CRC-16/MODBUS）。
+状态帧 `0x02` 的载荷是 **24 字节**，整帧 **31 字节**。
+改帧长或布局必须同步 6 个位置，缺一不可：
 
 | # | 文件 |
 |---|---|
-| 1 | `Lib/comm/inc/protocol.h`（布局注释 + struct） |
-| 2 | `Lib/comm/src/protocol.c`（`TX_LEN` / `RX_LEN` + 组帧） |
+| 1 | `Lib/comm/inc/protocol.h`（消息 ID / 长度宏 / struct） |
+| 2 | `Lib/comm/src/protocol.c`（状态机 + 组帧 / 解帧） |
 | 3 | `Core/Src/main.c`（填新字段） |
 | 4 | `chassis_link_test.py`（桌面 vmware share 与 slam-car-hmi/bridge 各一份） |
 | 5 | `check.py` / `pi_check.py`（`Desktop\脚本`） |
@@ -53,8 +55,8 @@
 python tools/verify_protocol.py
 ```
 
-历史教训：24 -> 33 字节那次只改了固件，四个上位机脚本全部按 24 字节解析，
-静默失效、不报错。详见规范 §10。
+历史教训：旧协议 24 -> 33 -> 37 字节的几次改动，曾出现只改固件、
+上位机脚本按旧长度解析而静默失效。详见规范 §12。
 
 ## OLED 显示开关
 

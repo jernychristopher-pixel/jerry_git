@@ -35,4 +35,9 @@ int16_t MPU6050_ReadAccelY(void);  /* Y轴加速度原始LSB */
 int16_t MPU6050_ReadAccelZ(void);  /* Z轴加速度原始LSB */
 float   MPU6050_GetGyroSens(void); /* 当前量程对应的灵敏度, 单位 LSB/dps */
 
+/* 一次事务读 ACCEL_XOUT_H 起 14 字节 (ax,ay,az,temp,gx,gy,gz)。
+ * 六个物理量来自同一采样点, 比逐个寄存器读更适合 M4-2 的姿态融合。
+ * 返回 1=成功, 0=I2C 失败 (失败时 out 内容保持不变)。 */
+int     MPU6050_ReadRaw14(int16_t out[7]);
+
 #endif

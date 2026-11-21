@@ -18,14 +18,21 @@
 #define APP_USE_OLED   0
 
 /**
-  * M4-4 协议模式开关
-  *   0 = 原 SlamTest 协议 (0x7B/0x7D + BCC, 11 字节下行 / 37 字节上行)
-  *   1 = M4-4 协议 (0xAA55 + len + id + seq + payload + CRC16)
-  * 两种协议共用 USART1, 不能同时开启。
-  * M4-4 现场编译时把它改成 1; 日常跑车保持 0。
+  * 上电默认工作模式 (运行期可切, 一套固件通吃 M4-2/3/4)
+  *
+  *   0 = 协议模式: USART1 跑 AA55+CRC16 二进制帧 (M4-3 / M4-4)
+  *   1 = 采集模式: USART1 以 100 Hz 输出 CSV 文本 (M4-2)
+  *
+  * 上电之后仍然可以在线切换, 不需要重新烧录:
+  *   收到二进制帧头 AA 55            -> 自动切到协议模式
+  *   收到 ASCII 行 "#M42 1" + 换行   -> 切到采集模式
+  *   收到 ASCII 行 "#M42 0" + 换行   -> 切回协议模式
+  * 实现在 Lib/app/src/app_mode.c, USART1 中断里只做字节判断。
+  *
+  * 默认给 1 是因为 M4-2 要求"接上串口就能看到 CSV";
+  * 而 M4-3/M4-4 的工具一上来就发 AA 55, 会在几十毫秒内把模式顶回来,
+  * 不会影响它们的时序。
   */
-#ifndef APP_USE_M44_PROTOCOL
-#define APP_USE_M44_PROTOCOL 0
-#endif
+#define APP_BOOT_MODE   1
 
 #endif /* __APP_CONFIG_H */

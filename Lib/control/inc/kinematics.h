@@ -51,6 +51,10 @@ void Chassis_Set_Wheel_Rpm(float left_rpm, float right_rpm);
 void Chassis_Exit_Wheel_Rpm(void);
 void Chassis_GetWheelRpm(float *left_rpm, float *right_rpm);
 
+/* M4-2 测速: 读取控制环累计的编码器脉冲, reset=1 时读完清零。
+ * 1s 窗口: rpm = 累计脉冲 / 1456 * 60 */
+void Chassis_Read_Encoder_Total(int32_t *left, int32_t *right, uint8_t reset);
+
 /* 统一速度命令入口: V(m/s), W(rad/s), 只接受上位机下发 */
 void Chassis_Set_Cmd(float V, float W);
 

@@ -172,6 +172,17 @@ float MPU6050_GetGyroSens(void) {
     return 16.4f;                 /* ±2000dps */
 }
 
+int MPU6050_ReadRaw14(int16_t out[7]) {
+    uint8_t b[14];
+    if (i2cRead(MPU6050_ADDR, MPU6050_ACCEL_XOUT_H, 14, b) != 0) {
+        return 0;
+    }
+    for (uint8_t i = 0; i < 7; i++) {
+        out[i] = (int16_t)(((uint16_t)b[2 * i] << 8) | b[2 * i + 1]);
+    }
+    return 1;
+}
+
 /**
  * @brief 下载固件并启动内置DMP, 返回0=成功
  */

@@ -25,9 +25,8 @@
 #include "imu.h"
 #include "yaw_hold.h"
 #include "adc.h"
-#if APP_USE_M44_PROTOCOL
-#include "m44_protocol.h"
-#endif
+#include "m42_stream.h"
+#include "app_mode.h"
 
 /* USER CODE END Includes */
 
@@ -131,6 +130,12 @@ int main(void)
   // TEST: 注释掉下面这行看电机转不转
   // Inverse_Kinematics(0.2f, 0.0f);
 
+  /* 上电默认模式见 app_config.h 的 APP_BOOT_MODE; 之后可以在线切换 */
+  AppMode_Init(APP_BOOT_MODE);
+  if (AppMode_Get() == APP_MODE_M42) {
+    /* M4-2 采集模式: 上电静止 2 s 估 gyro_y 零偏, 之后按 100 Hz 输出 CSV */
+    M42_Init();
+  }
 
   /* USER CODE END 2 */
 
@@ -141,23 +146,31 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    /* 固定 20ms 节拍: 先等到本周期起始时刻再干活, 避免"干活+延时"把采样率拖到 40Hz 左右 */
+    /* 模式切换的收尾: 切进 M42 要重估零偏, 切回协议要清缓冲并停车。
+       放在主循环里是因为 M42_Init() 要阻塞 2 s, 不能在中断里做。 */
+    AppMode_Service();
+
+    /* 节拍: M4-2 是 10 ms(100 Hz), 底盘控制是 20 ms(50 Hz)。
+       先等到本周期起始时刻再干活, 避免"干活+延时"把周期拖长。 */
     {
       static uint32_t next_tick = 0;
+      uint32_t period = (AppMode_Get() == APP_MODE_M42) ? 10u : 20u;
       uint32_t now_tick = HAL_GetTick();
       if ((int32_t)(now_tick - next_tick) < 0)
       {
         HAL_Delay(1);
         continue;
       }
-      next_tick = now_tick + 20;
+      next_tick = now_tick + period;
     }
 
+    if (AppMode_Get() == APP_MODE_M42) {
+      /* M4-2: 100 Hz 传感器流 */
+      M42_Step();
+    } else {
+
     Vofa_Rx_Reattach();   /* 串口出错后兜底重挂接收, 防止 RX 永久静默 */
-    Vofa_Service();       /* #Q 参数回读: 主循环发出, 不挤占串口中断 */
-#if APP_USE_M44_PROTOCOL
-    Vofa_M44_Poll();      /* M4-4: 环形缓冲 -> 状态机 -> 速度指令 */
-#endif
+    Vofa_Protocol_Poll(); /* 环形缓冲 -> 状态机 -> 速度/PID 指令 */
     IMU_Read();   /* 轮询DMP FIFO, 更新偏航角 */
     /* 车轮静止时慢速跟踪陀螺零偏, 抑制温漂引起的残余漂移 */
     if (robot_state.actual_rpm_L < 4.0f && robot_state.actual_rpm_L > -4.0f &&
@@ -204,61 +217,37 @@ int main(void)
     }
 #endif /* APP_USE_OLED */
 
-    /* USART1: 树莓派反馈帧 */
-#if APP_USE_M44_PROTOCOL
+    /* USART1: 状态帧(50ms) + 遥测帧(20ms) */
     {
-        uint8_t status_bits = M44_STATUS_MOTOR_ON;
+        uint8_t status_bits = PROTO_STATUS_MOTOR_ON;
         if (IMU_IsOk()) {
-            status_bits |= M44_STATUS_IMU_OK;
+            status_bits |= PROTO_STATUS_IMU_OK;
         }
-        Vofa_M44_Service((int16_t)robot_state.actual_rpm_L,
-                         (int16_t)robot_state.actual_rpm_R,
-                         Protocol_ClampI16(IMU_GetPitch() * 100.0f),
-                         Protocol_ClampI16(IMU_GetYaw() * 100.0f),
-                         status_bits);
-    }
-#else
-    /* 原 SlamTest 37字节反馈帧 (布局见 Lib/comm/protocol.h) */
-    Protocol_Feedback_t fb;
-    fb.flag_stop  = 0x00;                        /* 0=电机使能 */
-    fb.vx_mm_s    = (int16_t)Chassis_GetVx_MmS();
-    fb.vy_mm_s    = 0;
-    fb.wz_mrad_s  = (int16_t)Chassis_GetWz_MradS();
-    fb.acc_x_raw  = IMU_GetAccelXRaw();
-    fb.acc_y_raw  = IMU_GetAccelYRaw();
-    fb.acc_z_raw  = IMU_GetAccelZRaw();
-    fb.gyro_x_raw = IMU_GetGyroXRaw();
-    fb.gyro_y_raw = IMU_GetGyroYRaw();
-    fb.gyro_z_raw = IMU_GetGyroZRaw();
-    fb.battery_mv = Battery_Get_Mv();
-    /* 原来显示在 OLED 上的 IMU / 航向环信息, OLED 拆掉后改由串口上行 */
-    fb.yaw_001deg          = Protocol_ClampI16(IMU_GetYaw() * 100.0f);
-    fb.yaw_rate_mrad_s     = Protocol_ClampI16(IMU_GetYawRate() * 1000.0f);
-    fb.yaw_hold_err_001deg = Protocol_ClampI16(YawHold_GetError() * 100.0f);
-    fb.yaw_hold_out_mrad_s = Protocol_ClampI16(YawHold_GetLastOut() * 1000.0f);
-    /* bit0=IMU可用, bit1=上位机控制中(纯上位机版本恒为1); bit2-3 固定填 0 */
-    fb.status              = (uint8_t)((IMU_IsOk() ? 0x01u : 0x00u) | 0x02u);
-    {
-        float wl_mm_s, wr_mm_s;
-        Chassis_GetWheels_MmS(&wl_mm_s, &wr_mm_s);
-        fb.vl_mm_s = Protocol_ClampI16(wl_mm_s);
-        fb.vr_mm_s = Protocol_ClampI16(wr_mm_s);
-    }
-    if (Vofa_Csv_Enabled()) {
-        /* M4-3 采集模式: USART1 改发 CSV, 一行 50Hz(主循环 20ms) */
-        Vofa_Send_Csv(HAL_GetTick() / 1000.0f,
-                      robot_state.target_rpm_L, robot_state.actual_rpm_L, SpeedPID_L.Out,
-                      robot_state.target_rpm_R, robot_state.actual_rpm_R, SpeedPID_R.Out);
-    } else {
-        Protocol_Send_Feedback(&fb);
+        Vofa_Protocol_SendStatus(
+            Protocol_ClampI16(CHASSIS_V_SIGN * robot_state.actual_rpm_L),
+            Protocol_ClampI16(CHASSIS_V_SIGN * robot_state.actual_rpm_R),
+            Protocol_ClampI16(IMU_GetPitch() * 100.0f),
+            Protocol_ClampI16(IMU_GetYaw() * 100.0f),
+            Battery_Get_Mv(),
+            Protocol_ClampI16(IMU_GetYawRate() * 1000.0f),
+            Protocol_ClampI16(YawHold_GetLastOut() * 1000.0f),
+            status_bits);
 
-        /* USART3: VOFA 文本波形(仅非 CSV 模式发送, 采集时让出带宽和 CPU 时间) */
+        Vofa_Protocol_SendTelemetry(
+            Protocol_ClampI16(CHASSIS_V_SIGN * robot_state.target_rpm_L),
+            Protocol_ClampI16(CHASSIS_V_SIGN * robot_state.actual_rpm_L),
+            Protocol_ClampI16(CHASSIS_V_SIGN * SpeedPID_L.Out),
+            Protocol_ClampI16(CHASSIS_V_SIGN * robot_state.target_rpm_R),
+            Protocol_ClampI16(CHASSIS_V_SIGN * robot_state.actual_rpm_R),
+            Protocol_ClampI16(CHASSIS_V_SIGN * SpeedPID_R.Out));
+
+        /* USART3: VOFA 文本波形, 调试用 */
         Vofa_Send(robot_state.target_rpm_L, robot_state.actual_rpm_L,
                   robot_state.target_rpm_R, robot_state.actual_rpm_R,
                   YawHold_GetYaw(), YawHold_GetError(),
                   IMU_GetYawRate() * 57.29578f, YawHold_GetLastOut());
     }
-#endif /* APP_USE_M44_PROTOCOL */
+    }
   /* USER CODE END 3 */
   }
 }
