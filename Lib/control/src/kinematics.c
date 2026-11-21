@@ -195,7 +195,7 @@ void Chassis_Control_Loop(void)
     robot_state.actual_pulse_R = filt_R;
 
     /* 6. 脉冲 -> r/min: PID 给定与反馈统一成 r/min, 不再和编码器计数绑定。
-     *    先用 5 拍滑动窗口求和, 再换算成 r/min, 压低低速量化纹波。 */
+     *    先用 RPM_WINDOW(当前为 3)拍滑动窗口求和, 再换算成 r/min, 压低低速量化纹波。 */
     {
         static int16_t  hist_L[RPM_WINDOW], hist_R[RPM_WINDOW];
         static int32_t  sum_L = 0, sum_R = 0;
